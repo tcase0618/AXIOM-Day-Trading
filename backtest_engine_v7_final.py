@@ -11,7 +11,13 @@ import pandas as pd
 import numpy as np
 import json
 from datetime import datetime
-import yfinance as yf
+from pathlib import Path
+try:
+    import yfinance as yf
+    HAS_YFINANCE = True
+except Exception:
+    HAS_YFINANCE = False
+
 import logging
 from typing import Dict, List
 
@@ -309,7 +315,7 @@ class HybridBacktester:
 
     def test_all(self):
         logger.info("=" * 80)
-        logger.info("AXIOM BACKTEST ENGINE V6 HYBRID - FIXED FAILING SLOTS")
+        logger.info("AXIOM BACKTEST ENGINE V7 FINAL - FIXED FAILING SLOTS")
         logger.info("=" * 80)
 
         slots = {
@@ -395,7 +401,7 @@ class HybridBacktester:
                 }
             }
 
-        path = r"C:\Case Capital\Axiom day trading\strategy_manifest.json"
+        path = Path("strategy_manifest.json")
         with open(path, 'w') as f:
             json.dump(manifest, f, indent=2)
 
@@ -408,7 +414,7 @@ if __name__ == '__main__':
     manifest = backtester.save_manifest()
 
     logger.info("\n" + "=" * 80)
-    logger.info("V6 HYBRID FINAL RESULTS")
+    logger.info("V7 FINAL RESULTS")
     logger.info("=" * 80)
     logger.info(f"✅ ROBUST: {manifest['summary']['robust']}/10")
     logger.info(f"✅ MODERATE: {manifest['summary']['moderate']}/10")

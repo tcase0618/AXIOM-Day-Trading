@@ -1,0 +1,66 @@
+{
+  "generated_at": "2026-06-07",
+  "count": 4,
+  "inventory": [
+    {
+      "name": "v1_orb",
+      "source_file": "strategies/v1_orb.py",
+      "long_signals": "Close above 30-minute opening range high (ET)",
+      "short_signals": "Close below 30-minute opening range low (ET)",
+      "atr_stop_usage": "Not explicitly stated in source; ATR stop field not present in strategy module",
+      "session_filters": "Regular session 09:30–16:00 ET, first 30 minutes used for ORB range",
+      "alert_conditions": "Breakout detection at end of each post-ORB bar; single-bar threshold `last['close'] > orb_high` or `< orb_low`",
+      "backtest_results_summary": {
+        "trades": 61,
+        "win_rate": 0.409836,
+        "profit_factor": 0.657069
+      },
+      "backtest_readiness": "completed"
+    },
+    {
+      "name": "v2_ema_reversion",
+      "source_file": "strategies/v2_ema_reversion.py",
+      "long_signals": "Close crosses above 20-period EMA after being below it",
+      "short_signals": "Close crosses below 20-period EMA after being above it",
+      "atr_stop_usage": "Implicit indicator computation (`df['atr']` 14-period EWM ATR) present in source; stop/exit mechanics not explicitly exposed in `detect_signals`",
+      "session_filters": "No explicit session filter hardcoded in `detect_signals`; module docstring references regular-session filter",
+      "alert_conditions": "Mean-reversion entry on EMA crossover, prior bar close on opposite side of EMA",
+      "backtest_results_summary": {
+        "trades": 936,
+        "win_rate": 0.270299,
+        "profit_factor": 1.167996
+      },
+      "backtest_readiness": "completed"
+    },
+    {
+      "name": "v3_momentum",
+      "source_file": "strategies/v3_momentum.py",
+      "long_signals": "ADX >= 25 and +DI crosses above -DI",
+      "short_signals": "ADX >= 25 and -DI crosses above +DI",
+      "atr_stop_usage": "ATR computed (`df['atr']` 14-period EWM) and referenced as ATR stop placeholder in module docstring",
+      "session_filters": "No explicit session filter in code",
+      "alert_conditions": "Trend-strength filter uses ADX threshold 25; DI crossover determines direction",
+      "backtest_results_summary": {
+        "trades": 10,
+        "win_rate": 0.4,
+        "profit_factor": 0.951295
+      },
+      "backtest_readiness": "completed"
+    },
+    {
+      "name": "v4_volume_breakout",
+      "source_file": "strategies/v4_volume_breakout.py",
+      "long_signals": "Volume > 2× rolling 20-period average and close > previous bar high",
+      "short_signals": "No short entries generated",
+      "atr_stop_usage": "ATR computed (`df['atr']` 14-period EWM); source states ATR-based stop usage",
+      "session_filters": "No explicit session filter in code",
+      "alert_conditions": "Volume burst threshold combined with price breakout above prior high",
+      "backtest_results_summary": {
+        "trades": 0,
+        "win_rate": 0.0,
+        "profit_factor": 0.0
+      },
+      "backtest_readiness": "completed"
+    }
+  ]
+}
