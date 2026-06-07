@@ -1,0 +1,11 @@
+ENV NOTE - 2026-06-07
+======================
+
+This run failed only because of a Python dependency mismatch in the agent runtime used here:
+- Active `python` is 3.11
+- `pandas` / `yfinance` are installed for 3.14
+
+This is not a code issue.
+Expected correction is to rerun on the same Python that owns `requirements.txt`,
+for example the 3.14 core referenced under:
+  ~/AppData/Local/Python/pythoncore-3.14-64/windows-x86_64/python.exe
