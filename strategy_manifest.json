@@ -1,158 +1,57 @@
 {
-  "timestamp": "2026-06-06T08:21:19.922274",
-  "backtesting_parameters": {
-    "period": "2 years",
-    "interval": "daily",
-    "initial_capital": 10000,
-    "strategy_type": "Daily MA/BB Hybrid (Market-Adaptive)",
-    "notes": "V6: Down/Short slots modified to Long strategies (bull market optimization)"
-  },
-  "strategies": {
-    "SLOT_1": {
-      "slot_number": 1,
-      "name": "Equities Trending Up",
-      "best_performer": "TSLA",
-      "verdict": "ROBUST",
-      "metrics": {
-        "win_rate": 83.3,
-        "sharpe_ratio": 19.9,
-        "max_drawdown": 0.2,
-        "profit_factor": 12.57,
-        "total_return": 223.84,
-        "trade_count": 6
-      }
+  "project": "AXIOM",
+  "generated_at": "2026-06-07T22:42:47.038831Z",
+  "count": 4,
+  "strategies_in_order": [
+    "v1_orb",
+    "v2_ema_reversion",
+    "v3_momentum",
+    "v4_volume_breakout"
+  ],
+  "items": [
+    {
+      "name": "v1_orb",
+      "status": "completed",
+      "trades": 61,
+      "win_rate": 0.409836,
+      "profit_factor": 0.657069,
+      "expectancy": 1.993998,
+      "avg_r": 0.919897,
+      "max_drawdown": 70.264566,
+      "sample_signals": 61
     },
-    "SLOT_2": {
-      "slot_number": 2,
-      "name": "Equities Trending Down \u2192 LONG",
-      "best_performer": "JPM",
-      "verdict": "ROBUST",
-      "metrics": {
-        "win_rate": 75.0,
-        "sharpe_ratio": 13.47,
-        "max_drawdown": 0.1,
-        "profit_factor": 4.98,
-        "total_return": 31.59,
-        "trade_count": 4
-      }
+    {
+      "name": "v2_ema_reversion",
+      "status": "completed",
+      "trades": 936,
+      "win_rate": 0.270299,
+      "profit_factor": 1.167996,
+      "expectancy": 0.448231,
+      "avg_r": 3.153126,
+      "max_drawdown": 79.054356,
+      "sample_signals": 936
     },
-    "SLOT_3": {
-      "slot_number": 3,
-      "name": "Equities Horizontal",
-      "best_performer": "SPY",
-      "verdict": "MODERATE",
-      "metrics": {
-        "win_rate": 28.6,
-        "sharpe_ratio": 2.65,
-        "max_drawdown": 0.4,
-        "profit_factor": 1.56,
-        "total_return": 47.51,
-        "trade_count": 7
-      }
+    {
+      "name": "v3_momentum",
+      "status": "completed",
+      "trades": 10,
+      "win_rate": 0.4,
+      "profit_factor": 0.951295,
+      "expectancy": 5.615485,
+      "avg_r": 1.426943,
+      "max_drawdown": 52.751889,
+      "sample_signals": 10
     },
-    "SLOT_4": {
-      "slot_number": 4,
-      "name": "Equities Explosive",
-      "best_performer": "GME",
-      "verdict": "ROBUST",
-      "metrics": {
-        "win_rate": 60.0,
-        "sharpe_ratio": 4.66,
-        "max_drawdown": 0.0,
-        "profit_factor": 1.91,
-        "total_return": 6.28,
-        "trade_count": 5
-      }
-    },
-    "SLOT_5": {
-      "slot_number": 5,
-      "name": "Futures Trending Up",
-      "best_performer": "SPY",
-      "verdict": "ROBUST",
-      "metrics": {
-        "win_rate": 60.0,
-        "sharpe_ratio": 4.95,
-        "max_drawdown": 0.2,
-        "profit_factor": 1.87,
-        "total_return": 41.65,
-        "trade_count": 5
-      }
-    },
-    "SLOT_6": {
-      "slot_number": 6,
-      "name": "Futures Trending Down \u2192 LONG",
-      "best_performer": "CL=F",
-      "verdict": "ROBUST",
-      "metrics": {
-        "win_rate": 100.0,
-        "sharpe_ratio": 41.2,
-        "max_drawdown": 0.0,
-        "profit_factor": 0,
-        "total_return": 21.63,
-        "trade_count": 3
-      }
-    },
-    "SLOT_7": {
-      "slot_number": 7,
-      "name": "Futures Horizontal",
-      "best_performer": "GC=F",
-      "verdict": "FAIL",
-      "metrics": {
-        "win_rate": 52.0,
-        "sharpe_ratio": -0.93,
-        "max_drawdown": 8.9,
-        "profit_factor": 0.84,
-        "total_return": -710.0,
-        "trade_count": 198
-      }
-    },
-    "SLOT_8": {
-      "slot_number": 8,
-      "name": "Crypto Trending Up",
-      "best_performer": "BTC-USD",
-      "verdict": "MODERATE",
-      "metrics": {
-        "win_rate": 50.0,
-        "sharpe_ratio": 1.82,
-        "max_drawdown": 78.6,
-        "profit_factor": 1.29,
-        "total_return": 8578.29,
-        "trade_count": 8
-      }
-    },
-    "SLOT_9": {
-      "slot_number": 9,
-      "name": "Crypto Trending Down",
-      "best_performer": "BTC-USD",
-      "verdict": "MODERATE",
-      "metrics": {
-        "win_rate": 50.0,
-        "sharpe_ratio": 1.82,
-        "max_drawdown": 78.6,
-        "profit_factor": 1.29,
-        "total_return": 8578.29,
-        "trade_count": 8
-      }
-    },
-    "SLOT_10": {
-      "slot_number": 10,
-      "name": "Crypto Horizontal",
-      "best_performer": "SOL-USD",
-      "verdict": "MODERATE",
-      "metrics": {
-        "win_rate": 43.8,
-        "sharpe_ratio": 4.07,
-        "max_drawdown": 0.5,
-        "profit_factor": 1.82,
-        "total_return": 120.85,
-        "trade_count": 16
-      }
+    {
+      "name": "v4_volume_breakout",
+      "status": "completed",
+      "trades": 0,
+      "win_rate": 0.0,
+      "profit_factor": 0.0,
+      "expectancy": 0.0,
+      "avg_r": 0.0,
+      "max_drawdown": 0.0,
+      "sample_signals": 0
     }
-  },
-  "summary": {
-    "robust": 5,
-    "moderate": 4,
-    "weak": 0,
-    "fail": 1
-  }
+  ]
 }
