@@ -1,0 +1,12 @@
+.env
+__pycache__/
+*.pyc
+node_modules/
+.vscode/
+
+trades_log.json
+scan_log.json
+backtest_results.json
+current_regime.json
+
+*.log

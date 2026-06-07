@@ -1,0 +1,35 @@
+SLOT 1 - EQUITIES TRENDING UP (EMA Cross)
+- Symbol: AAPL, Strategy: ema_cross, Period: 2y, Interval: 1h
+- Symbol: MSFT, Strategy: ema_cross, Period: 2y, Interval: 1h
+- Symbol: NVDA, Strategy: ema_cross, Period: 2y, Interval: 1h
+- Symbol: TSLA, Strategy: ema_cross, Period: 2y, Interval: 1h
+
+SLOT 2 - EQUITIES TRENDING DOWN (RSI)
+- Symbol: JPM, Strategy: rsi, Period: 2y, Interval: 1h
+- Symbol: BAC, Strategy: rsi, Period: 2y, Interval: 1h
+
+SLOT 3 - EQUITIES HORIZONTAL (Bollinger Bands)
+- Symbol: VTI, Strategy: bollinger, Period: 2y, Interval: 1h
+- Symbol: ^GSPC, Strategy: bollinger, Period: 2y, Interval: 1h
+
+SLOT 4 - EQUITIES EXPLOSIVE (Volume+RSI → Supertrend)
+- Symbol: GME, Strategy: supertrend, Period: 2y, Interval: 1h
+
+SLOT 5 - FUTURES TRENDING UP (EMA Cross)
+- Symbol: ^GSPC, Strategy: ema_cross, Period: 2y, Interval: 1h (ES proxy)
+
+SLOT 6 - FUTURES TRENDING DOWN (RSI)
+- Symbol: CL-F, Strategy: rsi, Period: 2y, Interval: 1h
+
+SLOT 7 - FUTURES HORIZONTAL (Mean Reversion)
+- Symbol: GC-F, Strategy: bollinger, Period: 2y, Interval: 1h
+
+SLOT 8 - CRYPTO TRENDING UP (EMA Cross 2y bull data)
+- Symbol: BTC-USD, Strategy: ema_cross, Period: 2y, Interval: 1h
+- Symbol: ETH-USD, Strategy: ema_cross, Period: 2y, Interval: 1h
+
+SLOT 9 - CRYPTO TRENDING DOWN (RSI)
+- Symbol: BTC-USD, Strategy: rsi, Period: 2y, Interval: 1h
+
+SLOT 10 - CRYPTO HORIZONTAL (Bollinger Bands)
+- Symbol: SOL-USD, Strategy: bollinger, Period: 2y, Interval: 1h

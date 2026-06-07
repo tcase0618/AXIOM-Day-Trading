@@ -1,0 +1,130 @@
+//@version=5
+strategy("CRYPTO EMA Trend - BTCUSDT 4h", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=1, commission_type=strategy.commission.percent, commission_value=0.1, slippage=0.2)
+
+// ===== SETTINGS =====
+FAST_EMA = 12
+SLOW_EMA = 26
+SIGNAL_EMA = 9
+RSI_PERIOD = 14
+ATR_PERIOD = 14
+MIN_VOLUME_MULT = 1.2
+
+// ===== 4-HOUR INDICATORS =====
+atr = ta.atr(ATR_PERIOD)
+rsi = ta.rsi(close, RSI_PERIOD)
+vol_avg = ta.sma(volume, 20)
+
+ema_fast = ta.ema(close, FAST_EMA)
+ema_slow = ta.ema(close, SLOW_EMA)
+ema_signal = ta.ema(ema_fast - ema_slow, SIGNAL_EMA)
+macd_histogram = (ema_fast - ema_slow) - ema_signal
+
+// ===== ENTRY CONDITIONS =====
+// Long: EMA crossover, positive MACD, RSI confirmation
+long_ema_cross = ta.crossover(ema_fast, ema_slow)
+long_macd_positive = macd_histogram > 0
+long_rsi = rsi > 50
+entry_long = long_ema_cross and long_macd_positive and long_rsi and volume > (vol_avg * MIN_VOLUME_MULT) and strategy.position_size == 0
+
+// Short: EMA crossunder, negative MACD, RSI confirmation
+short_ema_cross = ta.crossunder(ema_fast, ema_slow)
+short_macd_negative = macd_histogram < 0
+short_rsi = rsi < 50
+entry_short = short_ema_cross and short_macd_negative and short_rsi and volume > (vol_avg * MIN_VOLUME_MULT) and strategy.position_size == 0
+
+// ===== SWING HIGHS AND LOWS =====
+var array<float> swing_highs = array.new<float>()
+var array<float> swing_lows = array.new<float>()
+
+swing_high = high[3] < high[2] and high[2] > high[1] and high[2] > high[0]
+swing_low = low[3] > low[2] and low[2] < low[1] and low[2] < low[0]
+
+if swing_high
+    array.push(swing_highs, high[1])
+    if array.size(swing_highs) > 30
+        array.shift(swing_highs)
+
+if swing_low
+    array.push(swing_lows, low[1])
+    if array.size(swing_lows) > 30
+        array.shift(swing_lows)
+
+// ===== POSITION TRACKING =====
+var float entry_price = 0.0
+var float stop_level = 0.0
+var float target_level = 0.0
+var int bars_in_trade = 0
+var int trades_active = 0
+
+// ===== LONG ENTRY - TREND FOLLOWING =====
+if entry_long and trades_active < 2
+    entry_price := close
+    stop_level := entry_price - (atr * 2.0)  // Wider stop for trend trades (expect volatility)
+    target_level := entry_price + (atr * 3.0)  // Trend trades target bigger moves
+
+    // For trend trades, look for nearby swing low for stop placement
+    for i = 0 to array.size(swing_lows) - 1
+        sl = array.get(swing_lows, i)
+        if sl < entry_price and entry_price - sl <= (entry_price * 0.05)
+            stop_level := sl - (atr * 0.5)
+
+    bars_in_trade := 0
+    trades_active += 1
+    strategy.entry("Long", strategy.long, qty=1)
+
+// ===== SHORT ENTRY - TREND FOLLOWING =====
+if entry_short and trades_active < 2
+    entry_price := close
+    stop_level := entry_price + (atr * 2.0)
+    target_level := entry_price - (atr * 3.0)
+
+    for i = 0 to array.size(swing_highs) - 1
+        sh = array.get(swing_highs, i)
+        if sh > entry_price and sh - entry_price <= (entry_price * 0.05)
+            stop_level := sh + (atr * 0.5)
+
+    bars_in_trade := 0
+    trades_active += 1
+    strategy.entry("Short", strategy.short, qty=1)
+
+// ===== TRACK BARS IN TRADE =====
+if strategy.position_size != 0
+    bars_in_trade += 1
+
+// ===== TIME EXIT: After 20 bars (80 hours / ~3 days) =====
+// Trend trades can hold longer
+if strategy.position_size != 0 and bars_in_trade > 20
+    strategy.close_all(comment="Trend trade time exit")
+
+// ===== TRAILING STOP (optional - tighten after 50% move) =====
+if strategy.position_size > 0
+    profit_pct = ((close - entry_price) / entry_price) * 100
+    if profit_pct >= 5.0  // 5% profit
+        stop_level := math.max(stop_level, entry_price + (atr * 1.0))  // Trail stop
+
+if strategy.position_size < 0
+    profit_pct = ((entry_price - close) / entry_price) * 100
+    if profit_pct >= 5.0
+        stop_level := math.min(stop_level, entry_price - (atr * 1.0))
+
+// ===== EXIT =====
+if strategy.position_size > 0
+    strategy.exit("Exit_Long", stop=stop_level, limit=target_level)
+
+if strategy.position_size < 0
+    strategy.exit("Exit_Short", stop=stop_level, limit=target_level)
+
+// ===== PLOTTING =====
+plot(ema_fast, "EMA Fast (12)", color.green, 2)
+plot(ema_slow, "EMA Slow (26)", color.red, 2)
+
+plot(macd_histogram, "MACD Histogram", color.blue, 1)
+hline(0, "MACD Zero", color.gray)
+
+plotchar(entry_long, "Long Entry (Trend)", "▲", location.belowbar, color.green, size=size.small)
+plotchar(entry_short, "Short Entry (Trend)", "▼", location.abovebar, color.red, size=size.small)
+
+stop_plot = strategy.position_size > 0 ? stop_level : na
+target_plot = strategy.position_size > 0 ? target_level : na
+plot(stop_plot, "Stop", color.red, 2)
+plot(target_plot, "Target", color.green, 2)

@@ -1,0 +1,222 @@
+//@version=6
+indicator("ICT Concepts Detector", overlay=true)
+
+// ===== SETTINGS =====
+MAX_FVGS = 10
+MAX_OBS = 5
+ATR_PERIOD = 14
+RSI_PERIOD = 14
+SWING_LOOKBACK = 5
+
+// ===== CORE CALCULATIONS =====
+atr = ta.atr(ATR_PERIOD)
+rsi = ta.rsi(close, RSI_PERIOD)
+
+// ===== 1. FAIR VALUE GAPS (FVG) =====
+// Bullish FVG: candle 1 high < candle 3 low (gap up)
+// Bearish FVG: candle 1 low > candle 3 high (gap down)
+
+var array<box> bullish_fvgs = array.new<box>()
+var array<box> bearish_fvgs = array.new<box>()
+var array<bool> fvg_filled = array.new<bool>()
+
+bullish_fvg = high[2] < low  // 3-candle pattern: 1 high < 3 low
+bearish_fvg = low[2] > high  // 3-candle pattern: 1 low > 3 high
+
+if bullish_fvg
+    fvg_box = box.new(left=bar_index[2], top=high[2], right=bar_index, bottom=low, bgcolor=color.new(color.green, 80), border_color=color.green)
+    array.push(bullish_fvgs, fvg_box)
+    array.push(fvg_filled, false)
+    if array.size(bullish_fvgs) > MAX_FVGS
+        array.shift(bullish_fvgs)
+        array.shift(fvg_filled)
+
+if bearish_fvg
+    fvg_box = box.new(left=bar_index[2], top=high, right=bar_index, bottom=low[2], bgcolor=color.new(color.red, 80), border_color=color.red)
+    array.push(bearish_fvgs, fvg_box)
+    array.push(fvg_filled, false)
+    if array.size(bearish_fvgs) > MAX_FVGS
+        array.shift(bearish_fvgs)
+        array.shift(fvg_filled)
+
+// Check if FVGs are filled
+for i = 0 to array.size(bullish_fvgs) - 1
+    fvg = array.get(bullish_fvgs, i)
+    if close >= box.get_bottom(fvg) and close <= box.get_top(fvg)
+        if not array.get(fvg_filled, i)
+            array.set(fvg_filled, i, true)
+            box.set_bgcolor(fvg, color.new(color.green, 20))
+
+for i = 0 to array.size(bearish_fvgs) - 1
+    fvg = array.get(bearish_fvgs, i)
+    if close >= box.get_bottom(fvg) and close <= box.get_top(fvg)
+        if not array.get(fvg_filled, i)
+            array.set(fvg_filled, i, true)
+            box.set_bgcolor(fvg, color.new(color.red, 20))
+
+// ===== 2. SWING HIGHS AND LOWS =====
+var array<float> swing_highs = array.new<float>()
+var array<float> swing_lows = array.new<float>()
+var array<int> swing_high_bars = array.new<int>()
+var array<int> swing_low_bars = array.new<int>()
+
+// Swing high: 2 lower highs on each side
+swing_high = high[2] < high[1] and high[1] < high and high > high[1] and high[2] > high[3]
+// Swing low: 2 higher lows on each side
+swing_low = low[2] > low[1] and low[1] > low and low < low[1] and low[2] < low[3]
+
+swing_high_plot = 0.0
+swing_low_plot = 0.0
+
+if swing_high
+    array.push(swing_highs, high[1])
+    array.push(swing_high_bars, bar_index[1])
+    if array.size(swing_highs) > 20
+        array.shift(swing_highs)
+        array.shift(swing_high_bars)
+    swing_high_plot := high[1]
+
+if swing_low
+    array.push(swing_lows, low[1])
+    array.push(swing_low_bars, bar_index[1])
+    if array.size(swing_lows) > 20
+        array.shift(swing_lows)
+        array.shift(swing_low_bars)
+    swing_low_plot := low[1]
+
+// Plots moved to global scope
+plot(swing_high_plot != 0 ? swing_high_plot : na, "Swing High", color.blue, 1)
+plot(swing_low_plot != 0 ? swing_low_plot : na, "Swing Low", color.orange, 1)
+
+// ===== 3. ORDER BLOCKS (OB) =====
+var array<box> bullish_obs = array.new<box>()
+var array<box> bearish_obs = array.new<box>()
+
+// Bullish OB: bearish candle (close < open) followed by upside structure break
+if close[1] < open[1] and close > high[1]
+    ob_box = box.new(left=bar_index[1], top=high[1], right=bar_index, bottom=low[1], bgcolor=color.new(color.green, 70), border_color=color.green, border_width=2)
+    array.push(bullish_obs, ob_box)
+    if array.size(bullish_obs) > MAX_OBS
+        array.shift(bullish_obs)
+
+// Bearish OB: bullish candle (close > open) followed by downside structure break
+if close[1] > open[1] and close < low[1]
+    ob_box = box.new(left=bar_index[1], top=high[1], right=bar_index, bottom=low[1], bgcolor=color.new(color.red, 70), border_color=color.red, border_width=2)
+    array.push(bearish_obs, ob_box)
+    if array.size(bearish_obs) > MAX_OBS
+        array.shift(bearish_obs)
+
+// ===== 4. LIQUIDITY SWEEPS =====
+// Bullish sweep: wick below prior swing low, close above it
+// Bearish sweep: wick above prior swing high, close below it
+
+bullish_sweep = false
+bearish_sweep = false
+
+if array.size(swing_lows) > 0
+    last_swing_low = array.get(swing_lows, array.size(swing_lows) - 1)
+    if low < last_swing_low and close > last_swing_low
+        bullish_sweep := true
+
+if array.size(swing_highs) > 0
+    last_swing_high = array.get(swing_highs, array.size(swing_highs) - 1)
+    if high > last_swing_high and close < last_swing_high
+        bearish_sweep := true
+
+// Plots moved to global scope
+plotchar(bullish_sweep, "Bullish Sweep", "▲", location.belowbar, color.green, size=size.small)
+plotchar(bearish_sweep, "Bearish Sweep", "▼", location.abovebar, color.red, size=size.small)
+
+// ===== 5. BREAK OF STRUCTURE (BOS) =====
+var bos_high = 0.0
+var bos_low = 0.0
+var bos_type = ""
+var bool show_bos_bullish = false
+var bool show_bos_bearish = false
+
+bullish_bos = array.size(swing_highs) > 0 and close > array.get(swing_highs, array.size(swing_highs) - 1)
+bearish_bos = array.size(swing_lows) > 0 and close < array.get(swing_lows, array.size(swing_lows) - 1)
+
+if bullish_bos and bos_type != "bullish"
+    bos_high := close
+    bos_type := "bullish"
+    show_bos_bullish := true
+else
+    show_bos_bullish := false
+
+if bearish_bos and bos_type != "bearish"
+    bos_low := close
+    bos_type := "bearish"
+    show_bos_bearish := true
+else
+    show_bos_bearish := false
+
+// Plots moved to global scope - use plot for compatibility
+bos_bullish_plot = show_bos_bullish ? bos_high : na
+bos_bearish_plot = show_bos_bearish ? bos_low : na
+plot(bos_bullish_plot, "Bullish BOS", color.green, 2, plot.style_stepline)
+plot(bos_bearish_plot, "Bearish BOS", color.red, 2, plot.style_stepline)
+plotchar(show_bos_bullish, "BOS Up", "→", location.bottom, color.green, size=size.small)
+plotchar(show_bos_bearish, "BOS Down", "←", location.top, color.red, size=size.small)
+
+// ===== 6. CHANGE OF CHARACTER (ChoCh) =====
+var prev_bos_type = ""
+var choch_detected = false
+
+if bos_type != prev_bos_type and prev_bos_type != ""
+    choch_detected := true
+    prev_bos_type := bos_type
+else
+    choch_detected := false
+    prev_bos_type := bos_type
+
+// Plot moved to global scope
+plotchar(choch_detected, "ChoCh", "◆", location.top, color.new(color.orange, 0), size=size.large)
+
+// ===== 7. OPTIMAL TRADE ENTRY (OTE) - Fibonacci Retracement =====
+// 62% to 79% retracement of last significant swing
+
+if array.size(swing_highs) > 0 and array.size(swing_lows) > 0
+    last_high = array.get(swing_highs, array.size(swing_highs) - 1)
+    last_low = array.get(swing_lows, array.size(swing_lows) - 1)
+
+    if last_high > last_low  // Down move retracement
+        swing_range = last_high - last_low
+        fib_62 = last_low + (swing_range * 0.62)
+        fib_79 = last_low + (swing_range * 0.79)
+        ote_box = box.new(left=bar_index[50], top=fib_79, right=bar_index, bottom=fib_62, bgcolor=color.new(color.blue, 85), border_color=color.blue)
+
+    if last_low < last_high  // Up move retracement
+        swing_range = last_high - last_low
+        fib_62 = last_high - (swing_range * 0.62)
+        fib_79 = last_high - (swing_range * 0.79)
+        ote_box = box.new(left=bar_index[50], top=fib_62, right=bar_index, bottom=fib_79, bgcolor=color.new(color.blue, 85), border_color=color.blue)
+
+// ===== 8. PREMIUM AND DISCOUNT ZONES =====
+// 50% equilibrium of identified ranges
+
+var float equilibrium = na
+var float premium_top = na
+var float discount_bottom = na
+
+if array.size(swing_highs) > 0 and array.size(swing_lows) > 0
+    last_high = array.get(swing_highs, array.size(swing_highs) - 1)
+    last_low = array.get(swing_lows, array.size(swing_lows) - 1)
+    equilibrium := (last_high + last_low) / 2.0
+    premium_top := last_high
+    discount_bottom := last_low
+
+// Plots moved to global scope
+plot(equilibrium, "Equilibrium (50%)", color.new(color.gray, 50), 1, plot.style_line)
+plot(premium_top, "Premium Top", color.new(color.red, 50))
+plot(equilibrium, "Premium/Discount Line", color.gray)
+plot(discount_bottom, "Discount Bottom", color.new(color.green, 50))
+
+// ===== ALERTS =====
+alertcondition(bullish_fvg, title="Bullish FVG", message="Bullish Fair Value Gap detected")
+alertcondition(bearish_fvg, title="Bearish FVG", message="Bearish Fair Value Gap detected")
+alertcondition(bullish_sweep, title="Bullish Sweep", message="Bullish Liquidity Sweep - reversal signal")
+alertcondition(bearish_sweep, title="Bearish Sweep", message="Bearish Liquidity Sweep - reversal signal")
+alertcondition(bullish_bos, title="Bullish BOS", message="Bullish Break of Structure")
+alertcondition(bearish_bos, title="Bearish BOS", message="Bearish Break of Structure")
+alertcondition(choch_detected, title="ChoCh Detected", message="Change of Character - trend reversal signal")

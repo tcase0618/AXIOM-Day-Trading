@@ -1,0 +1,124 @@
+//@version=5
+strategy("CRYPTO RSI Mean Reversion - BTCUSDT 5min", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=1, commission_type=strategy.commission.percent, commission_value=0.1, slippage=0.2)
+
+// ===== SETTINGS =====
+RSI_OVERSOLD = 25  // Crypto is more volatile
+RSI_OVERBOUGHT = 75
+RSI_RECOVERY = 40  // Wait for RSI to recover to this level before entering
+MIN_VOLUME_MULT = 1.2
+ATR_PERIOD = 14
+RSI_PERIOD = 14
+
+// ===== 24/7 TRADING (No session filter) =====
+// Crypto markets open 24/7
+
+// ===== INDICATORS =====
+atr = ta.atr(ATR_PERIOD)
+rsi = ta.rsi(close, RSI_PERIOD)
+vol_avg = ta.sma(volume, 20)
+ema_21 = ta.ema(close, 21)
+ema_50 = ta.ema(close, 50)
+
+// ===== ENTRY CONDITIONS =====
+// Long: RSI heavily oversold, then recovers with volume
+long_extreme = rsi < RSI_OVERSOLD and volume > (vol_avg * MIN_VOLUME_MULT)
+long_recovery = rsi > RSI_RECOVERY and rsi[1] < RSI_RECOVERY  // RSI crosses above recovery level
+entry_long = long_extreme and long_recovery and ema_21 > ema_50 and strategy.position_size == 0
+
+// Short: RSI heavily overbought, then recovers with volume
+short_extreme = rsi > RSI_OVERBOUGHT and volume > (vol_avg * MIN_VOLUME_MULT)
+short_recovery = rsi < (100 - RSI_RECOVERY) and rsi[1] > (100 - RSI_RECOVERY)
+entry_short = short_extreme and short_recovery and ema_21 < ema_50 and strategy.position_size == 0
+
+// ===== SWING HIGHS AND LOWS =====
+var array<float> swing_highs = array.new<float>()
+var array<float> swing_lows = array.new<float>()
+
+swing_high = high[3] < high[2] and high[2] > high[1] and high[2] > high[0]
+swing_low = low[3] > low[2] and low[2] < low[1] and low[2] < low[0]
+
+if swing_high
+    array.push(swing_highs, high[1])
+    if array.size(swing_highs) > 30
+        array.shift(swing_highs)
+
+if swing_low
+    array.push(swing_lows, low[1])
+    if array.size(swing_lows) > 30
+        array.shift(swing_lows)
+
+// ===== POSITION TRACKING =====
+var float entry_price = 0.0
+var float stop_level = 0.0
+var float target_level = 0.0
+var int bars_in_trade = 0
+var int trades_today = 0
+
+// Reset every 4 hours (288 bars in 24h)
+if bar_index % 48 == 0
+    trades_daily := 0
+
+// ===== LONG ENTRY =====
+if entry_long and trades_daily < 4  // Max 4 trades per 4-hour window
+    entry_price := close
+    stop_level := entry_price - (atr * 1.2)  // Tight stop for mean reversion
+    target_level := entry_price + (atr * 1.5)
+
+    // Target nearest swing high
+    for i = 0 to array.size(swing_highs) - 1
+        sh = array.get(swing_highs, i)
+        if sh > entry_price and sh - entry_price <= (entry_price * 0.02) and sh > target_level
+            target_level := sh
+
+    bars_in_trade := 0
+    trades_daily += 1
+    strategy.entry("Long", strategy.long, qty=1)
+
+// ===== SHORT ENTRY =====
+if entry_short and trades_daily < 4
+    entry_price := close
+    stop_level := entry_price + (atr * 1.2)
+    target_level := entry_price - (atr * 1.5)
+
+    for i = 0 to array.size(swing_lows) - 1
+        sl = array.get(swing_lows, i)
+        if sl < entry_price and entry_price - sl <= (entry_price * 0.02) and sl < target_level
+            target_level := sl
+
+    bars_in_trade := 0
+    trades_daily += 1
+    strategy.entry("Short", strategy.short, qty=1)
+
+// ===== TRACK BARS IN TRADE =====
+if strategy.position_size != 0
+    bars_in_trade += 1
+
+// ===== TIME EXIT: 60 minutes =====
+// Mean reversion should resolve quickly
+if strategy.position_size != 0 and bars_in_trade > 12  // 12 bars * 5min = 60 min
+    strategy.close_all(comment="Mean reversion time exit")
+
+// ===== EXIT =====
+if strategy.position_size > 0
+    strategy.exit("Exit_Long", stop=stop_level, limit=target_level)
+
+if strategy.position_size < 0
+    strategy.exit("Exit_Short", stop=stop_level, limit=target_level)
+
+// ===== PLOTTING =====
+plot(rsi, "RSI", color.orange, 2)
+hline(RSI_OVERSOLD, "RSI Oversold", color.new(color.red, 50))
+hline(RSI_OVERBOUGHT, "RSI Overbought", color.new(color.green, 50))
+hline(RSI_RECOVERY, "RSI Recovery Long", color.new(color.blue, 50))
+hline(100 - RSI_RECOVERY, "RSI Recovery Short", color.new(color.purple, 50))
+
+plot(ema_21, "EMA 21", color.green)
+plot(ema_50, "EMA 50", color.red)
+
+plotchar(entry_long, "Long Entry (RSI MR)", "▲", location.belowbar, color.green, size=size.small)
+plotchar(entry_short, "Short Entry (RSI MR)", "▼", location.abovebar, color.red, size=size.small)
+
+stop_plot = strategy.position_size > 0 ? stop_level : na
+target_plot = strategy.position_size > 0 ? target_level : na
+plot(stop_plot, "Stop", color.red, 2)
+plot(target_plot, "Target", color.green, 2)

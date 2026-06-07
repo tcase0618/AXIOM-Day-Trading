@@ -1,0 +1,61 @@
+//@version=5
+strategy("SLOT 10: Crypto Horizontal", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=5)
+
+// Bollinger Bands for mean reversion on 1H timeframe
+bb_len = 20
+bb_src = close
+bb_basis = ta.sma(bb_src, bb_len)
+bb_dev = ta.stdev(bb_src, bb_len)
+bb_upper = bb_basis + (bb_dev * 2)
+bb_lower = bb_basis - (bb_dev * 2)
+bb_bandwidth = bb_upper - bb_lower
+
+// Calculate 50-period range for bandwidth percentile
+bb_high_50 = ta.highest(bb_bandwidth, 50)
+bb_low_50 = ta.lowest(bb_bandwidth, 50)
+bandwidth_range = bb_high_50 - bb_low_50
+
+// Bandwidth in lowest 20% of 50-period range
+bandwidth_threshold = bb_low_50 + (bandwidth_range * 0.20)
+tight_squeeze = bb_bandwidth <= bandwidth_threshold
+
+// Entry signal for LONG: at lower band during squeeze
+entry_long = tight_squeeze and close <= bb_lower * 1.02 and volume >= ta.sma(volume, 20) * 1.5
+
+// Entry signal for SHORT: at upper band during squeeze
+entry_short = tight_squeeze and close >= bb_upper * 0.98 and volume >= ta.sma(volume, 20) * 1.5
+
+// Stops: outside the bands (crypto needs wider stops)
+stop_long = bb_lower * 0.97
+stop_short = bb_upper * 1.03
+
+// Position tracking
+var stop_long = 0.0
+var stop_short = 0.0
+var target = 0.0
+
+if entry_long and strategy.position_size == 0
+    stop_long := bb_lower * 0.97
+    target := bb_basis
+    strategy.entry("Long", strategy.long)
+
+if entry_short and strategy.position_size == 0
+    stop_short := bb_upper * 1.03
+    target := bb_basis
+    strategy.entry("Short", strategy.short)
+
+if strategy.position_size > 0
+    strategy.exit("Exit Long", from_entry="Long", stop=stop_long, limit=target)
+
+if strategy.position_size < 0
+    strategy.exit("Exit Short", from_entry="Short", stop=stop_short, limit=target)
+
+// Plotting
+plot(bb_upper, "BB Upper", color.red, 1)
+plot(bb_basis, "BB Basis", color.blue, 2)
+plot(bb_lower, "BB Lower", color.red, 1)
+plot(bb_bandwidth, "BB Bandwidth", color.purple, 1)
+hline(bandwidth_threshold, "Squeeze Threshold", color.gray, linestyle=hline.style_dashed)
+
+alertcondition(entry_long, title="Slot 10 Long Entry", message="SLOT 10 Long: {{ticker}} Crypto Mean Reversion (1H)")
+alertcondition(entry_short, title="Slot 10 Short Entry", message="SLOT 10 Short: {{ticker}} Crypto Mean Reversion (1H)")

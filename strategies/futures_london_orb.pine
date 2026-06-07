@@ -1,0 +1,139 @@
+//@version=5
+strategy("FUTURES London ORB - ES1! 15min", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=1, commission_type=strategy.commission.percent, commission_value=0.05, slippage=2)
+
+// ===== SETTINGS =====
+// London open: 3:00 AM ET (20:00 UTC previous day)
+LONDON_OPEN_HOUR = 3
+LONDON_RANGE_MINUTES = 60  // 1 hour range from 3:00-4:00 AM ET
+MAX_TRADES_PER_SESSION = 1
+ATR_PERIOD = 14
+RSI_PERIOD = 14
+MIN_VOLUME_MULT = 1.2
+
+// ===== 15-MINUTE INDICATORS =====
+atr = ta.atr(ATR_PERIOD)
+rsi = ta.rsi(close, RSI_PERIOD)
+vol_avg = ta.sma(volume, 20)
+
+// ===== SESSION FILTER: London Open 3:00-4:00 AM ET, Entry until 6:00 AM =====
+// Note: Use bar_time to check actual time more precisely
+is_london_session = (hour >= 3 and hour <= 6)
+
+// ===== OPENING RANGE BREAKOUT DETECTION =====
+var float london_orb_high = na
+var float london_orb_low = na
+var bool london_orb_formed = false
+var int trades_london = 0
+
+// Reset at 3:00 AM ET
+if hour == 3 and minute == 0
+    london_orb_high := high
+    london_orb_low := low
+    london_orb_formed := false
+    trades_london := 0
+
+// Build London range from 3:00 AM to 4:00 AM
+if hour == 3 and minute >= 0 and minute <= 60
+    if na(london_orb_high)
+        london_orb_high := high
+        london_orb_low := low
+    else
+        london_orb_high := math.max(london_orb_high, high)
+        london_orb_low := math.min(london_orb_low, low)
+
+// Range formed after 4:00 AM
+if hour == 4 and minute == 5
+    london_orb_formed := true
+
+// ===== SWING HIGHS AND LOWS =====
+var array<float> swing_highs = array.new<float>()
+var array<float> swing_lows = array.new<float>()
+
+swing_high = high[3] < high[2] and high[2] > high[1] and high[2] > high[0]
+swing_low = low[3] > low[2] and low[2] < low[1] and low[2] < low[0]
+
+if swing_high
+    array.push(swing_highs, high[1])
+    if array.size(swing_highs) > 20
+        array.shift(swing_highs)
+
+if swing_low
+    array.push(swing_lows, low[1])
+    if array.size(swing_lows) > 20
+        array.shift(swing_lows)
+
+// ===== ENTRY CONDITIONS =====
+// Long: Break above London ORB high
+long_breakout = london_orb_formed and close > london_orb_high and rsi > 45 and volume > (vol_avg * MIN_VOLUME_MULT)
+entry_long = is_london_session and long_breakout and strategy.position_size == 0
+
+// Short: Break below London ORB low
+short_breakout = london_orb_formed and close < london_orb_low and rsi < 55 and volume > (vol_avg * MIN_VOLUME_MULT)
+entry_short = is_london_session and short_breakout and strategy.position_size == 0
+
+// ===== POSITION TRACKING =====
+var float entry_price = 0.0
+var float stop_level = 0.0
+var float target_level = 0.0
+var int bars_in_trade = 0
+
+// ===== LONG ENTRY =====
+if entry_long and trades_london < MAX_TRADES_PER_SESSION
+    entry_price := close
+    stop_level := entry_price - (atr * 1.5)
+    target_level := entry_price + (atr * 2.5)
+
+    for i = 0 to array.size(swing_highs) - 1
+        sh = array.get(swing_highs, i)
+        if sh > entry_price and sh - entry_price <= 60.0 and sh > target_level
+            target_level := sh
+
+    bars_in_trade := 0
+    trades_london += 1
+    strategy.entry("Long", strategy.long, qty=1)
+
+// ===== SHORT ENTRY =====
+if entry_short and trades_london < MAX_TRADES_PER_SESSION
+    entry_price := close
+    stop_level := entry_price + (atr * 1.5)
+    target_level := entry_price - (atr * 2.5)
+
+    for i = 0 to array.size(swing_lows) - 1
+        sl = array.get(swing_lows, i)
+        if sl < entry_price and entry_price - sl <= 60.0 and sl < target_level
+            target_level := sl
+
+    bars_in_trade := 0
+    trades_london += 1
+    strategy.entry("Short", strategy.short, qty=1)
+
+// ===== TRACK BARS IN TRADE =====
+if strategy.position_size != 0
+    bars_in_trade += 1
+
+// ===== TIME EXIT: Before US open (close at 9:20 AM ET) =====
+// London session ends at US pre-market open
+if strategy.position_size != 0 and hour == 9 and minute >= 20
+    strategy.close_all(comment="London session close before US open")
+
+// ===== EXIT =====
+if strategy.position_size > 0
+    strategy.exit("Exit_Long", stop=stop_level, limit=target_level)
+
+if strategy.position_size < 0
+    strategy.exit("Exit_Short", stop=stop_level, limit=target_level)
+
+// ===== PLOTTING =====
+london_high_plot = london_orb_formed ? london_orb_high : na
+london_low_plot = london_orb_formed ? london_orb_low : na
+
+plot(london_high_plot, "London ORB High", color.new(color.green, 50), 2)
+plot(london_low_plot, "London ORB Low", color.new(color.red, 50), 2)
+
+plotchar(entry_long, "Long Entry", "▲", location.belowbar, color.green, size=size.small)
+plotchar(entry_short, "Short Entry", "▼", location.abovebar, color.red, size=size.small)
+
+stop_plot = strategy.position_size > 0 ? stop_level : na
+target_plot = strategy.position_size > 0 ? target_level : na
+plot(stop_plot, "Stop", color.red, 2)
+plot(target_plot, "Target", color.green, 2)

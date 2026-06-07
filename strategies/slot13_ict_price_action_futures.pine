@@ -1,0 +1,211 @@
+//@version=6
+strategy("SLOT 13: ICT Price Action - Futures (BOS+OTE)", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=1, commission_type=strategy.commission.percent, commission_value=0.05, slippage=2)
+
+// ===== SETTINGS =====
+MAX_TRADES_PER_SESSION = 2
+ATR_PERIOD = 14
+RSI_PERIOD = 14
+MIN_BOS_MOVE = 4.0  // Minimum 4 points for ES1! to filter weak breakouts
+OTE_MIN_RETRACE = 0.50  // 50% retracement minimum
+OTE_MAX_RETRACE = 0.79  // 79% retracement maximum
+
+// ===== 5-MINUTE INDICATORS =====
+atr = ta.atr(ATR_PERIOD)
+rsi = ta.rsi(close, RSI_PERIOD)
+vol_avg = ta.sma(volume, 20)
+
+// ===== SESSION FILTER (Eastern Time: 9:30am - 3:45pm) =====
+// Note: Pine Script hour uses chart timezone (for ES1!, this is typically ET)
+is_market_hours = (hour == 9 and minute >= 30) or (hour >= 10 and hour <= 14) or (hour == 15 and minute <= 45)
+
+// ===== SWING HIGHS AND LOWS =====
+var array<float> swing_highs = array.new<float>()
+var array<float> swing_lows = array.new<float>()
+
+swing_high = high[3] < high[2] and high[2] > high[1] and high[2] > high[0]
+swing_low = low[3] > low[2] and low[2] < low[1] and low[2] < low[0]
+
+if swing_high
+    array.push(swing_highs, high[1])
+    if array.size(swing_highs) > 20
+        array.shift(swing_highs)
+
+if swing_low
+    array.push(swing_lows, low[1])
+    if array.size(swing_lows) > 20
+        array.shift(swing_lows)
+
+// ===== BREAK OF STRUCTURE (BOS) WITH OTE CALCULATION =====
+var float bos_entry_level_long = 0.0   // Price at which bullish BOS occurred
+var float bos_entry_level_short = 0.0  // Price at which bearish BOS occurred
+var float ote_high_long = 0.0          // OTE zone top (bullish)
+var float ote_low_long = 0.0           // OTE zone bottom (bullish)
+var float ote_high_short = 0.0         // OTE zone top (bearish)
+var float ote_low_short = 0.0          // OTE zone bottom (bearish)
+var float prior_swing_high = 0.0       // Target for long exits
+var float prior_swing_low = 0.0        // Target for short exits
+var bool waiting_for_ote_long = false  // Waiting for price to pullback to OTE
+var bool waiting_for_ote_short = false // Waiting for price to pullback to OTE
+
+if hour == 9 and minute == 30
+    bos_entry_level_long := 0.0
+    bos_entry_level_short := 0.0
+    waiting_for_ote_long := false
+    waiting_for_ote_short := false
+
+// BULLISH BOS: Price closes above prior swing high
+if array.size(swing_highs) > 0
+    prior_swing_high_val = array.get(swing_highs, array.size(swing_highs) - 1)
+
+    // Check if this candle closes above swing high with minimum move
+    if close > prior_swing_high_val and close[1] <= prior_swing_high_val and (close - prior_swing_high_val) >= MIN_BOS_MOVE
+        bos_entry_level_long := close
+        prior_swing_high := prior_swing_high_val
+        waiting_for_ote_long := true
+        waiting_for_ote_short := false
+
+        // Calculate OTE zone based on BOS move size
+        bos_move = close - prior_swing_high_val
+        ote_retrace_high = close - (bos_move * OTE_MIN_RETRACE)
+        ote_retrace_low = close - (bos_move * OTE_MAX_RETRACE)
+        ote_high_long := ote_retrace_high
+        ote_low_long := ote_retrace_low
+
+// BEARISH BOS: Price closes below prior swing low
+if array.size(swing_lows) > 0
+    prior_swing_low_val = array.get(swing_lows, array.size(swing_lows) - 1)
+
+    // Check if this candle closes below swing low with minimum move
+    if close < prior_swing_low_val and close[1] >= prior_swing_low_val and (prior_swing_low_val - close) >= MIN_BOS_MOVE
+        bos_entry_level_short := close
+        prior_swing_low := prior_swing_low_val
+        waiting_for_ote_short := true
+        waiting_for_ote_long := false
+
+        // Calculate OTE zone based on BOS move size
+        bos_move = prior_swing_low_val - close
+        ote_retrace_high = close + (bos_move * OTE_MAX_RETRACE)
+        ote_retrace_low = close + (bos_move * OTE_MIN_RETRACE)
+        ote_high_short := ote_retrace_high
+        ote_low_short := ote_retrace_low
+
+// ===== OTE PULLBACK DETECTION =====
+// Check if price is in OTE zone (pullback phase)
+in_ote_zone_long = waiting_for_ote_long and close >= ote_low_long and close <= ote_high_long
+in_ote_zone_short = waiting_for_ote_short and close >= ote_low_short and close <= ote_high_short
+
+// ===== REVERSAL CANDLE DETECTION IN OTE ZONE =====
+// Bullish reversal: green candle (close > open) with good size
+// Bearish reversal: red candle (close < open) with good size
+bullish_reversal = in_ote_zone_long and close > open and (close - open) > (atr * 0.3)
+bearish_reversal = in_ote_zone_short and close < open and (open - close) > (atr * 0.3)
+
+// ===== ENTRY CONDITIONS (BOS + OTE + REVERSAL + RSI) =====
+entry_long = is_market_hours and bullish_reversal and rsi > 50 and strategy.position_size == 0
+entry_short = is_market_hours and bearish_reversal and rsi < 50 and strategy.position_size == 0
+
+// ===== POSITION TRACKING =====
+var float entry_price = 0.0
+var float stop_level = 0.0
+var float target_level = 0.0
+var float breakeven_stop = 0.0
+var int trades_today = 0
+var int bars_in_trade = 0
+var string trade_direction = ""
+var bool partial_stop_triggered = false
+
+if hour == 9 and minute == 30
+    trades_today := 0
+
+// ===== LONG ENTRY WITH DYNAMIC TARGET =====
+if entry_long and trades_today < MAX_TRADES_PER_SESSION
+    entry_price := close
+    stop_level := entry_price - 12.0  // Fixed 12 point stop
+    target_level := entry_price + 12.0  // Default: 12 points
+
+    // Find nearest swing high above entry (within 30 points, at least 1.5x stop = 18 points)
+    for i = 0 to array.size(swing_highs) - 1
+        sh = array.get(swing_highs, i)
+        if sh > entry_price and sh - entry_price <= 30.0 and sh - entry_price >= 18.0
+            if sh < target_level  // Use nearest swing high
+                target_level := sh
+
+    bars_in_trade := 0
+    trade_direction := "long"
+    partial_stop_triggered := false
+    trades_today += 1
+    waiting_for_ote_long := false
+    strategy.entry("Long", strategy.long, qty=1)
+
+// ===== SHORT ENTRY WITH DYNAMIC TARGET =====
+if entry_short and trades_today < MAX_TRADES_PER_SESSION
+    entry_price := close
+    stop_level := entry_price + 12.0  // Fixed 12 point stop
+    target_level := entry_price - 12.0  // Default: 12 points
+
+    // Find nearest swing low below entry (within 30 points, at least 1.5x stop = 18 points)
+    for i = 0 to array.size(swing_lows) - 1
+        sl = array.get(swing_lows, i)
+        if sl < entry_price and entry_price - sl <= 30.0 and entry_price - sl >= 18.0
+            if sl > target_level  // Use nearest swing low
+                target_level := sl
+
+    bars_in_trade := 0
+    trade_direction := "short"
+    partial_stop_triggered := false
+    trades_today += 1
+    waiting_for_ote_short := false
+    strategy.entry("Short", strategy.short, qty=1)
+
+// ===== TRACK BARS IN TRADE =====
+if strategy.position_size != 0
+    bars_in_trade += 1
+
+// ===== TRAILING STOP: Progressive profit protection =====
+if strategy.position_size > 0 and trade_direction == "long"
+    profit = close - entry_price
+    if profit >= 12.0 and stop_level < entry_price + 6.0
+        stop_level := entry_price + 6.0  // Lock in 6 points profit
+    else if profit >= 6.0 and stop_level < entry_price
+        stop_level := entry_price  // Trail to breakeven at 6 point profit
+
+if strategy.position_size < 0 and trade_direction == "short"
+    profit = entry_price - close
+    if profit >= 12.0 and stop_level > entry_price - 6.0
+        stop_level := entry_price - 6.0  // Lock in 6 points profit
+    else if profit >= 6.0 and stop_level > entry_price
+        stop_level := entry_price  // Trail to breakeven at 6 point profit
+
+// ===== TIME EXIT: Close after 20 candles (100 minutes) if not at target =====
+if strategy.position_size != 0 and bars_in_trade > 20
+    strategy.close_all(comment="Time exit - 100 minutes max")
+
+// ===== EXIT WITH NEW PARAMETERS =====
+if strategy.position_size > 0
+    strategy.exit("Exit_Long", stop=stop_level, limit=target_level)
+
+if strategy.position_size < 0
+    strategy.exit("Exit_Short", stop=stop_level, limit=target_level)
+
+// ===== PLOTTING =====
+// OTE zones
+ote_high_long_plot = waiting_for_ote_long ? ote_high_long : na
+ote_low_long_plot = waiting_for_ote_long ? ote_low_long : na
+ote_high_short_plot = waiting_for_ote_short ? ote_high_short : na
+ote_low_short_plot = waiting_for_ote_short ? ote_low_short : na
+
+plot(ote_high_long_plot, "OTE High Long", color.new(color.green, 50))
+plot(ote_low_long_plot, "OTE Low Long", color.new(color.green, 50))
+plot(ote_high_short_plot, "OTE High Short", color.new(color.red, 50))
+plot(ote_low_short_plot, "OTE Low Short", color.new(color.red, 50))
+
+plotchar(entry_long, "Long Entry", "▲", location.belowbar, color.green, size=size.small)
+plotchar(entry_short, "Short Entry", "▼", location.abovebar, color.red, size=size.small)
+
+plotchar(bullish_reversal, "Bullish Reversal", "◆", location.belowbar, color.new(color.green, 50), size=size.tiny)
+plotchar(bearish_reversal, "Bearish Reversal", "◆", location.abovebar, color.new(color.red, 50), size=size.tiny)
+
+stop_plot = strategy.position_size > 0 ? stop_level : na
+target_plot = strategy.position_size > 0 ? target_level : na
+plot(stop_plot, "Stop", color.red, 2)
+plot(target_plot, "Target", color.green, 2)

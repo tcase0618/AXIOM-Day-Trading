@@ -1,0 +1,49 @@
+//@version=5
+strategy("SLOT 2: Equities Trending Down", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=10)
+
+// EMAs for trend confirmation
+ema9 = ta.ema(close, 9)
+ema21 = ta.ema(close, 21)
+ema50 = ta.ema(close, 50)
+
+// RSI for entry conditions
+rsi = ta.rsi(close, 14)
+
+// Volume analysis
+vol_avg20 = ta.sma(volume, 20)
+vol_filter = volume >= vol_avg20 * 1.5
+
+// Trend confirmation: EMA 9 < EMA 21 < EMA 50
+trend_down = ema9 < ema21 and ema21 < ema50
+
+// Entry signal: RSI 35-50 range on bounce to EMA 21
+rsi_entry = rsi >= 35 and rsi <= 50
+close_to_ema21 = close >= ema21 * 0.99 and close <= ema21 * 1.01
+
+entry_signal = trend_down and rsi_entry and vol_filter and close_to_ema21
+
+// Position tracking for stop/target calculation
+var entry_price = 0.0
+var stop_level = 0.0
+var target_level = 0.0
+
+// Calculate stop/target on entry
+if entry_signal and strategy.position_size == 0
+    entry_price := close
+    stop_level := ema50 * 1.02
+    risk_amount = stop_level - entry_price
+    target_level := entry_price - (risk_amount * 2.0)
+    strategy.entry("Short", strategy.short)
+
+// Exit conditions (only if we have an active position)
+if strategy.position_size < 0
+    strategy.exit("Exit", from_entry="Short", stop=stop_level, limit=target_level)
+
+// Plotting for visualization
+plot(ema9, "EMA 9", color.blue, 1)
+plot(ema21, "EMA 21", color.orange, 1)
+plot(ema50, "EMA 50", color.red, 2)
+plot(rsi, "RSI", color.purple, 1)
+hline(35, "RSI 35", color.gray, linestyle=hline.style_dashed)
+hline(50, "RSI 50", color.gray, linestyle=hline.style_dashed)
+alertcondition(entry_signal, title="Slot 2 Entry Signal", message="SLOT 2 Entry: {{ticker}} Trending Down")

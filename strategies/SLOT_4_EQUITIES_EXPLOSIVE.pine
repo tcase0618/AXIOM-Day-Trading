@@ -1,0 +1,47 @@
+//@version=5
+strategy("SLOT 4: Equities Explosive", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=10)
+
+// Volume analysis: 3x+ 20 period average
+vol_avg20 = ta.sma(volume, 20)
+vol_explosion = volume >= vol_avg20 * 3.0
+
+// Price move: 4%+ from previous close
+prev_close = close[1]
+price_move_pct = ((close - prev_close) / prev_close) * 100
+price_explosion = price_move_pct >= 4.0 or price_move_pct <= -4.0
+
+// RSI for directional confirmation
+rsi = ta.rsi(close, 14)
+rsi_bullish = rsi > 60
+
+// Prior day high for breakout reference
+prior_day_high = 0.0
+prior_day_low = 0.0
+if barstate.isnew
+    prior_day_high := high[1]
+    prior_day_low := low[1]
+
+// Entry signal: first candle close above prior day high with explosion conditions
+entry_signal_long = vol_explosion and price_explosion and rsi_bullish and close > prior_day_high
+
+// Position tracking
+var entry_price = 0.0
+var stop_level_long = 0.0
+var target_level_long = 0.0
+
+if entry_signal_long and strategy.position_size == 0
+    entry_price := close
+    stop_level_long := low
+    risk_amount = entry_price - stop_level_long
+    target_level_long := entry_price + (risk_amount * 3.0)
+    strategy.entry("Long", strategy.long)
+
+if strategy.position_size > 0
+    strategy.exit("Exit", from_entry="Long", stop=stop_level_long, limit=target_level_long)
+
+// Plotting
+plot(rsi, "RSI", color.purple, 1)
+hline(60, "RSI 60", color.gray, linestyle=hline.style_dashed)
+plot(vol_avg20 * 3.0, "Volume Trigger 3x", color.blue, 1, linewidth=2)
+
+alertcondition(entry_signal_long, title="Slot 4 Entry", message="SLOT 4 Explosive Entry: {{ticker}}")

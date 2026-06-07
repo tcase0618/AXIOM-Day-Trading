@@ -1,0 +1,195 @@
+//@version=6
+indicator("Liquidity Map", overlay=true)
+
+// ===== SETTINGS =====
+SWING_LOOKBACK = 20
+EQH_EQL_TOLERANCE = 0.001  // 0.1%
+MAGNET_SCORE_THRESHOLD = 7
+
+// ===== DAILY CONTEXT =====
+pdh = request.security(syminfo.tickerid, "D", high[1])
+pdl = request.security(syminfo.tickerid, "D", low[1])
+pwh = request.security(syminfo.tickerid, "W", high[1])
+pwl = request.security(syminfo.tickerid, "W", low[1])
+
+// Plot prior session levels
+plot(pdh, "Prior Day High", color.new(color.orange, 0), 2, linestyle=hline.style_solid)
+plot(pdl, "Prior Day Low", color.new(color.orange, 0), 2, linestyle=hline.style_solid)
+plot(pwh, "Prior Week High", color.new(color.white, 50), 2, linestyle=hline.style_solid)
+plot(pwl, "Prior Week Low", color.new(color.white, 50), 2, linestyle=hline.style_solid)
+
+// ===== 1. SWING HIGHS AND LOWS =====
+var array<float> swing_highs = array.new<float>()
+var array<float> swing_lows = array.new<float>()
+var array<int> swing_high_bars = array.new<int>()
+var array<int> swing_low_bars = array.new<int>()
+var array<int> swing_high_touches = array.new<int>()
+var array<int> swing_low_touches = array.new<int>()
+
+// Detect swing highs (higher high on each side)
+swing_high = high[2] < high[1] and high[1] < high and high > high[1] and high > high[2]
+// Detect swing lows (lower low on each side)
+swing_low = low[2] > low[1] and low[1] > low and low < low[1] and low < low[2]
+
+sh_plot = false
+sl_plot = false
+
+if swing_high
+    array.push(swing_highs, high[1])
+    array.push(swing_high_bars, bar_index[1])
+    array.push(swing_high_touches, 1)
+    if array.size(swing_highs) > SWING_LOOKBACK
+        array.shift(swing_highs)
+        array.shift(swing_high_bars)
+        array.shift(swing_high_touches)
+    sh_plot := true
+
+if swing_low
+    array.push(swing_lows, low[1])
+    array.push(swing_low_bars, bar_index[1])
+    array.push(swing_low_touches, 1)
+    if array.size(swing_lows) > SWING_LOOKBACK
+        array.shift(swing_lows)
+        array.shift(swing_low_bars)
+        array.shift(swing_low_touches)
+    sl_plot := true
+
+// Plots moved to global scope
+plotchar(sh_plot, "SH", "•", location.abovebar, color.blue, size=size.tiny)
+plotchar(sl_plot, "SL", "•", location.belowbar, color.green, size=size.tiny)
+
+// Count touches and update scores
+for i = 0 to array.size(swing_highs) - 1
+    level = array.get(swing_highs, i)
+    if high >= level * 0.9999 and high <= level * 1.0001  // Within 0.01%
+        array.set(swing_high_touches, i, array.get(swing_high_touches, i) + 1)
+
+for i = 0 to array.size(swing_lows) - 1
+    level = array.get(swing_lows, i)
+    if low >= level * 0.9999 and low <= level * 1.0001
+        array.set(swing_low_touches, i, array.get(swing_low_touches, i) + 1)
+
+// ===== 2. EQUAL HIGHS AND LOWS (EQH/EQL) =====
+var array<float> equal_highs = array.new<float>()
+var array<float> equal_lows = array.new<float>()
+
+// Find equal highs (two swings within tolerance)
+if array.size(swing_highs) >= 2
+    for i = 0 to array.size(swing_highs) - 2
+        level1 = array.get(swing_highs, i)
+        level2 = array.get(swing_highs, i + 1)
+        if math.abs(level1 - level2) / level1 < EQH_EQL_TOLERANCE
+            if not array.includes(equal_highs, level1)
+                array.push(equal_highs, level1)
+
+// Find equal lows
+if array.size(swing_lows) >= 2
+    for i = 0 to array.size(swing_lows) - 2
+        level1 = array.get(swing_lows, i)
+        level2 = array.get(swing_lows, i + 1)
+        if math.abs(level1 - level2) / level1 < EQH_EQL_TOLERANCE
+            if not array.includes(equal_lows, level1)
+                array.push(equal_lows, level1)
+
+// Plot EQH levels at global scope
+for i = 0 to array.size(equal_highs) - 1
+    hline(array.get(equal_highs, i), "EQH", color.new(color.blue, 50), linestyle=hline.style_dotted)
+
+// Plot EQL levels at global scope
+for i = 0 to array.size(equal_lows) - 1
+    hline(array.get(equal_lows, i), "EQL", color.new(color.green, 50), linestyle=hline.style_dotted)
+
+// ===== 3. STOPS ABOVE HIGHS AND BELOW LOWS =====
+// Most recent 3 swing highs - retail shorts have stops just above
+// Most recent 3 swing lows - retail longs have stops just below
+
+buy_side_liquidity = 0.0
+sell_side_liquidity = 0.0
+
+if array.size(swing_highs) > 0
+    recent_high = array.get(swing_highs, array.size(swing_highs) - 1)
+    buy_side_liquidity := recent_high * 1.002  // 0.2% above
+
+if array.size(swing_lows) > 0
+    recent_low = array.get(swing_lows, array.size(swing_lows) - 1)
+    sell_side_liquidity := recent_low * 0.998  // 0.2% below
+
+plot(buy_side_liquidity, "Buy Side Liquidity (above)", color.new(color.blue, 70), 2)
+plot(sell_side_liquidity, "Sell Side Liquidity (below)", color.new(color.green, 70), 2)
+
+// ===== 4. LIQUIDITY MAGNET SCORE =====
+// Score 1-10 based on: tests, distance from price, age
+
+calculate_magnet_score(level, current_price, touches, age_bars) =>
+    base_score = 2.0
+    // Tests factor (more tests = higher score, max +5)
+    test_score = math.min(touches * 0.5, 5.0)
+    // Distance factor (closer = higher score, max +2)
+    distance_factor = math.abs(current_price - level) / current_price
+    distance_score = distance_factor < 0.01 ? 2.0 : distance_factor < 0.02 ? 1.0 : 0.0
+    // Age factor (recent = higher, max +1)
+    age_score = age_bars < 20 ? 1.0 : 0.0
+    score = base_score + test_score + distance_score + age_score
+    math.min(score, 10.0)
+
+// Score all highs
+for i = 0 to array.size(swing_highs) - 1
+    level = array.get(swing_highs, i)
+    bar_age = bar_index - array.get(swing_high_bars, i)
+    touches = array.get(swing_high_touches, i)
+    score = calculate_magnet_score(level, close, touches, bar_age)
+
+    if score >= MAGNET_SCORE_THRESHOLD
+        label.new(array.get(swing_high_bars, i), level, str.tostring(math.round(score, 1)), color=color.new(color.orange, 0), textcolor=color.black, size=size.small)
+
+// Score all lows
+for i = 0 to array.size(swing_lows) - 1
+    level = array.get(swing_lows, i)
+    bar_age = bar_index - array.get(swing_low_bars, i)
+    touches = array.get(swing_low_touches, i)
+    score = calculate_magnet_score(level, close, touches, bar_age)
+
+    if score >= MAGNET_SCORE_THRESHOLD
+        label.new(array.get(swing_low_bars, i), level, str.tostring(math.round(score, 1)), color=color.new(color.orange, 0), textcolor=color.black, size=size.small)
+
+// ===== 5. DAILY BIAS INDICATOR =====
+// Count liquidity above and below current price
+
+liquidity_above = 0
+liquidity_below = 0
+
+// Count swings above
+if array.size(swing_highs) > 0
+    for i = 0 to array.size(swing_highs) - 1
+        if array.get(swing_highs, i) > close
+            liquidity_above += 1
+
+if pdh > close
+    liquidity_above += 1
+if pwh > close
+    liquidity_above += 1
+
+// Count swings below
+if array.size(swing_lows) > 0
+    for i = 0 to array.size(swing_lows) - 1
+        if array.get(swing_lows, i) < close
+            liquidity_below += 1
+
+if pdl < close
+    liquidity_below += 1
+if pwl < close
+    liquidity_below += 1
+
+// Determine bias
+bias = liquidity_above > liquidity_below ? "BULLISH" : liquidity_below > liquidity_above ? "BEARISH" : "NEUTRAL"
+bias_color = bias == "BULLISH" ? color.green : bias == "BEARISH" ? color.red : color.gray
+
+// Display bias in top right
+var table bias_table = table.new(position.top_right, 1, 1, bgcolor=color.new(color.black, 80), border_color=bias_color, border_width=2)
+table.cell(bias_table, 0, 0, bias, text_size=size.large, text_color=bias_color, bgcolor=color.new(color.black, 80))
+
+// ===== ALERTS =====
+alertcondition(close > buy_side_liquidity, title="Price at Buy Side Liquidity", message="Price approaching retail short stops")
+alertcondition(close < sell_side_liquidity, title="Price at Sell Side Liquidity", message="Price approaching retail long stops")
+alertcondition(bias == "BULLISH", title="Bullish Bias", message="More liquidity above price - bullish bias")
+alertcondition(bias == "BEARISH", title="Bearish Bias", message="More liquidity below price - bearish bias")

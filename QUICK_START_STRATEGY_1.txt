@@ -1,0 +1,60 @@
+╔════════════════════════════════════════════════════════════════╗
+║     STRATEGY 1: FUTURES ORB US OPEN - ES1! 5-MINUTE            ║
+║              QUICK START (Copy & Paste Ready)                   ║
+╚════════════════════════════════════════════════════════════════╝
+
+STEP 1: OPEN TRADINGVIEW
+   • Launch TradingView Desktop
+   • Search: "ES1!"
+   • Set timeframe: 5 minutes
+
+STEP 2: ADD INDICATOR
+   • Click Indicators (bottom left)
+   • Search: "Smart Money Concepts"
+   • By: LuxAlgo
+   • Add to chart
+
+STEP 3: INJECT STRATEGY
+   • Click Pine Editor
+   • Click New Script → Strategy
+   • DELETE ALL CODE
+   • OPEN: C:\Case Capital\Axiom day trading\strategies\futures_orb_us_open.pine
+   • Copy entire file
+   • Paste into Pine Editor
+   • Click Save
+   • Click Add to Chart
+
+STEP 4: BACKTEST
+   • Open Strategy Tester (bottom)
+   • Date Range: 2024-01-01 to 2026-06-06
+   • Click Run
+   • Wait 1-2 minutes
+
+STEP 5: RECORD RESULTS
+   • Total Trades: ___
+   • Win Rate: ___%
+   • Profit Factor: ___
+   • Max Drawdown: ___%
+   • Net P&L: $___
+
+STEP 6: SEND RESULTS TO CLAUDE
+   Copy the metrics above and send back
+
+═══════════════════════════════════════════════════════════════════
+
+SUCCESS CRITERIA:
+✅ Win Rate ≥ 55%
+✅ Profit Factor ≥ 1.3
+✅ Net P&L > 0
+
+If ANY fails: ONE parameter adjustment allowed
+If second test fails: Mark as NEEDS REVIEW and move to Strategy 2
+
+═══════════════════════════════════════════════════════════════════
+
+FILES:
+   • Code: C:\Case Capital\Axiom day trading\strategies\futures_orb_us_open.pine
+   • Guide: C:\Case Capital\Axiom day trading\STRATEGY_1_SETUP_GUIDE.md
+   • Status: C:\Case Capital\Axiom day trading\STRATEGY_BUILD_STATUS.md
+
+═══════════════════════════════════════════════════════════════════

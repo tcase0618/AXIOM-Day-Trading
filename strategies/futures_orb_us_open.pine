@@ -1,0 +1,153 @@
+//@version=5
+strategy("FUTURES ORB US Open - ES1! 5min", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=1, commission_type=strategy.commission.percent, commission_value=0.05, slippage=2)
+
+// ===== SETTINGS =====
+ORB_START_HOUR = 9
+ORB_START_MIN = 30
+ORB_END_HOUR = 9
+ORB_END_MIN = 45
+MAX_TRADES_PER_SESSION = 2
+ATR_PERIOD = 14
+RSI_PERIOD = 14
+MIN_VOLUME_MULT = 1.5
+
+// ===== 5-MINUTE INDICATORS =====
+atr = ta.atr(ATR_PERIOD)
+rsi = ta.rsi(close, RSI_PERIOD)
+vol_avg = ta.sma(volume, 20)
+
+// ===== SESSION FILTER (Eastern Time) =====
+is_market_hours = (hour == 9 and minute >= 30) or (hour >= 10 and hour <= 15)
+
+// ===== OPENING RANGE BREAKOUT DETECTION =====
+var float orb_high = na
+var float orb_low = na
+var bool orb_formed = false
+var int trades_today = 0
+
+// Reset at 9:30am ET
+if hour == 9 and minute == 30
+    orb_high := high
+    orb_low := low
+    orb_formed := false
+    trades_today := 0
+
+// Build opening range from 9:30am to 9:45am
+if hour == 9 and minute >= 30 and minute <= 45
+    if na(orb_high)
+        orb_high := high
+        orb_low := low
+    else
+        orb_high := math.max(orb_high, high)
+        orb_low := math.min(orb_low, low)
+
+// ORB is formed after 9:45am
+if hour == 9 and minute == 46
+    orb_formed := true
+
+// ===== SWING HIGHS AND LOWS (for dynamic targets) =====
+var array<float> swing_highs = array.new<float>()
+var array<float> swing_lows = array.new<float>()
+
+swing_high = high[3] < high[2] and high[2] > high[1] and high[2] > high[0]
+swing_low = low[3] > low[2] and low[2] < low[1] and low[2] < low[0]
+
+if swing_high
+    array.push(swing_highs, high[1])
+    if array.size(swing_highs) > 20
+        array.shift(swing_highs)
+
+if swing_low
+    array.push(swing_lows, low[1])
+    if array.size(swing_lows) > 20
+        array.shift(swing_lows)
+
+// ===== ENTRY CONDITIONS =====
+// Long: Close above ORB high, RSI > 50, volume 1.5x average
+long_breakout = orb_formed and close > orb_high and rsi > 50 and volume > (vol_avg * MIN_VOLUME_MULT)
+entry_long = is_market_hours and long_breakout and strategy.position_size == 0
+
+// Short: Close below ORB low, RSI < 50, volume 1.5x average
+short_breakout = orb_formed and close < orb_low and rsi < 50 and volume > (vol_avg * MIN_VOLUME_MULT)
+entry_short = is_market_hours and short_breakout and strategy.position_size == 0
+
+// ===== POSITION TRACKING =====
+var float entry_price = 0.0
+var float stop_level = 0.0
+var float target_level = 0.0
+var int bars_in_trade = 0
+var string trade_direction = ""
+
+// ===== LONG ENTRY WITH DYNAMIC TARGET =====
+if entry_long and trades_today < MAX_TRADES_PER_SESSION
+    entry_price := close
+    stop_level := entry_price - (atr * 1.5)  // ATR-based stop, wider for futures
+    target_level := entry_price + (atr * 2.0)  // Default: 2x ATR
+
+    // Find nearest swing high above entry (within 50 points for ES1!)
+    for i = 0 to array.size(swing_highs) - 1
+        sh = array.get(swing_highs, i)
+        if sh > entry_price and sh - entry_price <= 50.0 and sh - entry_price >= (atr * 1.5)
+            if sh < target_level
+                target_level := sh
+
+    bars_in_trade := 0
+    trade_direction := "long"
+    trades_today += 1
+    strategy.entry("Long", strategy.long, qty=1)
+
+// ===== SHORT ENTRY WITH DYNAMIC TARGET =====
+if entry_short and trades_today < MAX_TRADES_PER_SESSION
+    entry_price := close
+    stop_level := entry_price + (atr * 1.5)  // ATR-based stop
+    target_level := entry_price - (atr * 2.0)  // Default: 2x ATR below
+
+    // Find nearest swing low below entry
+    for i = 0 to array.size(swing_lows) - 1
+        sl = array.get(swing_lows, i)
+        if sl < entry_price and entry_price - sl <= 50.0 and entry_price - sl >= (atr * 1.5)
+            if sl > target_level
+                target_level := sl
+
+    bars_in_trade := 0
+    trade_direction := "short"
+    trades_today += 1
+    strategy.entry("Short", strategy.short, qty=1)
+
+// ===== TRACK BARS IN TRADE =====
+if strategy.position_size != 0
+    bars_in_trade += 1
+
+// ===== TIME EXIT: Close after 90 minutes if not at target =====
+// ORB trades should close by 11am ET (90 minutes after 9:30am)
+if strategy.position_size != 0 and bars_in_trade > 18  // 18 bars * 5min = 90 minutes
+    strategy.close_all(comment="ORB time exit - 90 minutes max")
+
+// ===== EXIT WITH DYNAMIC TARGETS =====
+if strategy.position_size > 0
+    strategy.exit("Exit_Long", stop=stop_level, limit=target_level)
+
+if strategy.position_size < 0
+    strategy.exit("Exit_Short", stop=stop_level, limit=target_level)
+
+// ===== PLOTTING =====
+// Opening range box
+orb_high_plot = orb_formed ? orb_high : na
+orb_low_plot = orb_formed ? orb_low : na
+
+plot(orb_high_plot, "ORB High", color.new(color.green, 50), 2)
+plot(orb_low_plot, "ORB Low", color.new(color.red, 50), 2)
+
+// Entry signals
+plotchar(entry_long, "Long Entry", "▲", location.belowbar, color.green, size=size.small)
+plotchar(entry_short, "Short Entry", "▼", location.abovebar, color.red, size=size.small)
+
+// Stop and target
+stop_plot = strategy.position_size > 0 ? stop_level : na
+target_plot = strategy.position_size > 0 ? target_level : na
+plot(stop_plot, "Stop", color.red, 2)
+plot(target_plot, "Target", color.green, 2)
+
+// Higher timeframe EMA 21 (15-min context)
+ema21_15m = ta.ema(close, 21)
+plot(ema21_15m, "EMA 21 (context)", color.new(color.blue, 60), 1)

@@ -1,0 +1,60 @@
+//@version=5
+strategy("SLOT 3: Equities Horizontal", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=10)
+
+// ADX for range confirmation (below 20 = choppy/horizontal)
+adx_len = 14
+adx = ta.adx(adx_len)
+
+// Bollinger Bands for range detection
+bb_len = 20
+bb_src = close
+bb_basis = ta.sma(bb_src, bb_len)
+bb_dev = ta.stdev(bb_src, bb_len)
+bb_upper = bb_basis + (bb_dev * 2)
+bb_lower = bb_basis - (bb_dev * 2)
+bb_bandwidth = bb_upper - bb_lower
+
+// Calculate bandwidth lowest in 20 periods (squeeze detection)
+bandwidth_lowest = ta.lowest(bb_bandwidth, 20)
+is_squeeze = bb_bandwidth <= bandwidth_lowest * 1.05
+
+// Range confirmation: ADX < 20
+range_mode = adx < 20
+
+// Entry signal for LONG: at lower Bollinger Band during squeeze
+entry_long = range_mode and is_squeeze and close <= bb_lower * 1.02 and volume >= ta.sma(volume, 20) * 1.2
+
+// Entry signal for SHORT: at upper Bollinger Band during squeeze
+entry_short = range_mode and is_squeeze and close >= bb_upper * 0.98 and volume >= ta.sma(volume, 20) * 1.2
+
+// Position tracking
+var stop_long = 0.0
+var target_long = 0.0
+var stop_short = 0.0
+var target_short = 0.0
+
+if entry_long and strategy.position_size == 0
+    stop_long := bb_lower * 0.98
+    target_long := bb_basis
+    strategy.entry("Long", strategy.long)
+
+if entry_short and strategy.position_size == 0
+    stop_short := bb_upper * 1.02
+    target_short := bb_basis
+    strategy.entry("Short", strategy.short)
+
+if strategy.position_size > 0
+    strategy.exit("Exit Long", from_entry="Long", stop=stop_long, limit=target_long)
+
+if strategy.position_size < 0
+    strategy.exit("Exit Short", from_entry="Short", stop=stop_short, limit=target_short)
+
+// Plotting
+plot(bb_upper, "BB Upper", color.red, 1)
+plot(bb_basis, "BB Basis", color.blue, 2)
+plot(bb_lower, "BB Lower", color.red, 1)
+plot(adx, "ADX", color.purple, 1)
+hline(20, "ADX 20", color.gray, linestyle=hline.style_dashed)
+
+alertcondition(entry_long, title="Slot 3 Long Entry", message="SLOT 3 Long Entry: {{ticker}} Range Breakup")
+alertcondition(entry_short, title="Slot 3 Short Entry", message="SLOT 3 Short Entry: {{ticker}} Range Breakdown")

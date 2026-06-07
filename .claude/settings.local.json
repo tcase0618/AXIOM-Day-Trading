@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(grep axiom)",
+      "Bash(npm install *)",
+      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\tcase\\\\axiom-day-trading\" | ForEach-Object { $_.Name })",
+      "mcp__tradingview-live__tv_health_check",
+      "mcp__tradingview-live__tv_launch",
+      "mcp__tradingview-scanner__volume_breakout_scanner"
+    ]
+  }
+}

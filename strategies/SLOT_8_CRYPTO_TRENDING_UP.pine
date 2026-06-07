@@ -1,0 +1,56 @@
+//@version=5
+strategy("SLOT 8: Crypto Trending Up", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=5)
+
+// EMAs for trend confirmation (same as Slot 1 but for 4H timeframe)
+ema9 = ta.ema(close, 9)
+ema21 = ta.ema(close, 21)
+ema50 = ta.ema(close, 50)
+
+// RSI for entry conditions
+rsi = ta.rsi(close, 14)
+
+// Volume analysis: 2x+ 20 period average for crypto
+vol_avg20 = ta.sma(volume, 20)
+vol_filter = volume >= vol_avg20 * 2.0
+
+// Trend confirmation: EMA 9 > EMA 21 > EMA 50
+trend_up = ema9 > ema21 and ema21 > ema50
+
+// Entry signal: RSI 50-65 on pullback to EMA 21
+rsi_entry = rsi >= 50 and rsi <= 65
+close_to_ema21 = close >= ema21 * 0.99 and close <= ema21 * 1.01
+
+entry_signal = trend_up and rsi_entry and vol_filter and close_to_ema21
+
+// Wider stops for crypto volatility (2% below EMA 50)
+stop_level = ema50 * 0.98
+
+// Target: 2x the risk
+entry_price = 0.0
+if entry_signal
+    entry_price := close
+
+risk_amount = entry_price - stop_level
+target_level = entry_price + (risk_amount * 2)
+
+// Position tracking
+var stop_level_var = 0.0
+var target_level_var = 0.0
+
+if entry_signal and strategy.position_size == 0
+    stop_level_var := ema50 * 0.98
+    risk_amount = close - stop_level_var
+    target_level_var := close + (risk_amount * 2.0)
+    strategy.entry("Long", strategy.long)
+
+if strategy.position_size > 0
+    strategy.exit("Exit", from_entry="Long", stop=stop_level_var, limit=target_level_var)
+
+// Plotting for visualization
+plot(ema9, "EMA 9", color.blue, 1)
+plot(ema21, "EMA 21", color.orange, 1)
+plot(ema50, "EMA 50", color.red, 2)
+plot(rsi, "RSI", color.purple, 1)
+hline(50, "RSI 50", color.gray, linestyle=hline.style_dashed)
+hline(65, "RSI 65", color.gray, linestyle=hline.style_dashed)
+alertcondition(entry_signal, title="Slot 8 Entry Signal", message="SLOT 8 Entry: {{ticker}} Crypto Trending Up (4H)")

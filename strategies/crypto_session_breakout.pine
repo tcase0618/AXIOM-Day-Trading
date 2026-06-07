@@ -1,0 +1,143 @@
+//@version=5
+strategy("CRYPTO Session Breakout - BTCUSDT 5min", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=1, commission_type=strategy.commission.percent, commission_value=0.1, slippage=0.2)
+
+// ===== SETTINGS =====
+// Session opens: Asia 8pm, London 3am, US 9:30am (ET)
+ASIA_HOUR = 20    // 8:00 PM UTC (starts previous day ~8pm local)
+LONDON_HOUR = 3   // 3:00 AM UTC+1 (London time)
+US_HOUR = 14      // 9:30 AM ET (14:30 UTC, adjusted for EDT)
+BREAKOUT_MINUTES = 60  // 1 hour breakout period
+MIN_VOLUME_MULT = 1.3
+ATR_PERIOD = 14
+RSI_PERIOD = 14
+
+// ===== 5-MINUTE INDICATORS =====
+atr = ta.atr(ATR_PERIOD)
+rsi = ta.rsi(close, RSI_PERIOD)
+vol_avg = ta.sma(volume, 20)
+
+// ===== SESSION TRACKING =====
+var float session_high = na
+var float session_low = na
+var bool session_formed = false
+var int trades_session = 0
+
+// ===== DETERMINE WHICH SESSION WE'RE IN =====
+// Note: This is approximate - crypto trades 24/7 but we label sessions by NY time
+in_asia_session = hour >= 20 or hour < 3
+in_london_session = hour >= 3 and hour < 10
+in_us_session = hour >= 14 and hour <= 22
+
+// Reset sessions at beginning of each (approximate)
+if (in_asia_session and hour == 20 and minute == 0) or (in_london_session and hour == 3 and minute == 0) or (in_us_session and hour == 14 and minute == 30)
+    session_high := high
+    session_low := low
+    session_formed := false
+    trades_session := 0
+
+// Build session range during first 60 minutes
+if (in_asia_session and hour == 20) or (in_london_session and (hour == 3 or (hour == 4 and minute < 60))) or (in_us_session and hour == 14)
+    if na(session_high)
+        session_high := high
+        session_low := low
+    else
+        session_high := math.max(session_high, high)
+        session_low := math.min(session_low, low)
+
+// Mark session formed after 65 minutes
+if ((in_asia_session and hour == 21 and minute == 5) or
+    (in_london_session and hour == 4 and minute == 5) or
+    (in_us_session and hour == 15 and minute == 35))
+    session_formed := true
+
+// ===== SWING HIGHS AND LOWS =====
+var array<float> swing_highs = array.new<float>()
+var array<float> swing_lows = array.new<float>()
+
+swing_high = high[3] < high[2] and high[2] > high[1] and high[2] > high[0]
+swing_low = low[3] > low[2] and low[2] < low[1] and low[2] < low[0]
+
+if swing_high
+    array.push(swing_highs, high[1])
+    if array.size(swing_highs) > 30
+        array.shift(swing_highs)
+
+if swing_low
+    array.push(swing_lows, low[1])
+    if array.size(swing_lows) > 30
+        array.shift(swing_lows)
+
+// ===== ENTRY CONDITIONS =====
+// Long: Breakout above session high with RSI and volume confirmation
+long_breakout = session_formed and close > session_high and rsi > 50 and volume > (vol_avg * MIN_VOLUME_MULT)
+entry_long = long_breakout and strategy.position_size == 0
+
+// Short: Breakout below session low with RSI and volume confirmation
+short_breakout = session_formed and close < session_low and rsi < 50 and volume > (vol_avg * MIN_VOLUME_MULT)
+entry_short = short_breakout and strategy.position_size == 0
+
+// ===== POSITION TRACKING =====
+var float entry_price = 0.0
+var float stop_level = 0.0
+var float target_level = 0.0
+var int bars_in_trade = 0
+
+// ===== LONG ENTRY =====
+if entry_long and trades_session < 2
+    entry_price := close
+    stop_level := entry_price - (atr * 1.3)
+    target_level := entry_price + (atr * 2.0)
+
+    for i = 0 to array.size(swing_highs) - 1
+        sh = array.get(swing_highs, i)
+        if sh > entry_price and sh - entry_price <= (entry_price * 0.03) and sh > target_level
+            target_level := sh
+
+    bars_in_trade := 0
+    trades_session += 1
+    strategy.entry("Long", strategy.long, qty=1)
+
+// ===== SHORT ENTRY =====
+if entry_short and trades_session < 2
+    entry_price := close
+    stop_level := entry_price + (atr * 1.3)
+    target_level := entry_price - (atr * 2.0)
+
+    for i = 0 to array.size(swing_lows) - 1
+        sl = array.get(swing_lows, i)
+        if sl < entry_price and entry_price - sl <= (entry_price * 0.03) and sl < target_level
+            target_level := sl
+
+    bars_in_trade := 0
+    trades_session += 1
+    strategy.entry("Short", strategy.short, qty=1)
+
+// ===== TRACK BARS IN TRADE =====
+if strategy.position_size != 0
+    bars_in_trade += 1
+
+// ===== TIME EXIT: 90 minutes after session start =====
+if strategy.position_size != 0 and bars_in_trade > 18
+    strategy.close_all(comment="Session breakout time exit")
+
+// ===== EXIT =====
+if strategy.position_size > 0
+    strategy.exit("Exit_Long", stop=stop_level, limit=target_level)
+
+if strategy.position_size < 0
+    strategy.exit("Exit_Short", stop=stop_level, limit=target_level)
+
+// ===== PLOTTING =====
+session_high_plot = session_formed ? session_high : na
+session_low_plot = session_formed ? session_low : na
+
+plot(session_high_plot, "Session High", color.new(color.green, 50), 2)
+plot(session_low_plot, "Session Low", color.new(color.red, 50), 2)
+
+plotchar(entry_long, "Long Entry (Session)", "▲", location.belowbar, color.green, size=size.small)
+plotchar(entry_short, "Short Entry (Session)", "▼", location.abovebar, color.red, size=size.small)
+
+stop_plot = strategy.position_size > 0 ? stop_level : na
+target_plot = strategy.position_size > 0 ? target_level : na
+plot(stop_plot, "Stop", color.red, 2)
+plot(target_plot, "Target", color.green, 2)

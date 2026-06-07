@@ -1,0 +1,187 @@
+//@version=6
+strategy("SLOT 12: ICT Price Action - Equities", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=1, commission_type=strategy.commission.percent, commission_value=0.05, slippage=2)
+
+// ===== SETTINGS =====
+RISK_PER_TRADE = 100
+ENTRY_WINDOW_START = 930
+ENTRY_WINDOW_END = 1600
+MAX_TRADES_PER_SESSION = 2
+ATR_PERIOD = 14
+RSI_PERIOD = 14
+
+// ===== SESSION FILTER =====
+is_market_hours = hour >= 9 and hour <= 15 and (hour < 15 or minute < 30)
+
+// ===== DAILY CONTEXT =====
+pdh = request.security(syminfo.tickerid, "D", high[1])
+pdl = request.security(syminfo.tickerid, "D", low[1])
+daily_ema20 = request.security(syminfo.tickerid, "D", ta.ema(close, 20))
+
+// ===== 5-MINUTE INDICATORS =====
+atr = ta.atr(ATR_PERIOD)
+rsi = ta.rsi(close, RSI_PERIOD)
+vwap_5m = ta.vwap(close)
+
+// ===== SWING HIGHS AND LOWS =====
+var array<float> swing_highs = array.new<float>()
+var array<float> swing_lows = array.new<float>()
+
+swing_high = high[2] < high[1] and high[1] < high and high > high[1]
+swing_low = low[2] > low[1] and low[1] < low and low < low[1]
+
+if swing_high
+    array.push(swing_highs, high[1])
+    if array.size(swing_highs) > 10
+        array.shift(swing_highs)
+
+if swing_low
+    array.push(swing_lows, low[1])
+    if array.size(swing_lows) > 10
+        array.shift(swing_lows)
+
+// ===== FAIR VALUE GAPS (FVG) =====
+bullish_fvg = high[2] < low  // Gap up
+bearish_fvg = low[2] > high  // Gap down
+
+var float fvg_zone_high = 0.0
+var float fvg_zone_low = 0.0
+var bool fvg_active = false
+
+if bullish_fvg
+    fvg_zone_high := low
+    fvg_zone_low := high[2]
+    fvg_active := true
+
+if bearish_fvg
+    fvg_zone_high := low[2]
+    fvg_zone_low := high
+    fvg_active := true
+
+// Price in FVG
+price_in_fvg = fvg_active and close >= fvg_zone_low and close <= fvg_zone_high
+
+// ===== ORDER BLOCKS (OB) =====
+var float ob_high = 0.0
+var float ob_low = 0.0
+var string ob_type = ""
+
+// Bullish OB: bearish candle followed by upside move
+if close[1] < open[1] and close > high[1]
+    ob_high := high[1]
+    ob_low := low[1]
+    ob_type := "bullish"
+
+// Bearish OB: bullish candle followed by downside move
+if close[1] > open[1] and close < low[1]
+    ob_high := high[1]
+    ob_low := low[1]
+    ob_type := "bearish"
+
+price_in_ob = (ob_type == "bullish" and close >= ob_low and close <= ob_high) or (ob_type == "bearish" and close >= ob_low and close <= ob_high)
+
+// ===== BREAK OF STRUCTURE (BOS) =====
+var bool bos_bullish_occurred = false
+var bool bos_bearish_occurred = false
+var float bos_level = 0.0
+
+if array.size(swing_highs) > 0 and close > array.get(swing_highs, array.size(swing_highs) - 1)
+    bos_bullish_occurred := true
+    bos_level := close
+
+if array.size(swing_lows) > 0 and close < array.get(swing_lows, array.size(swing_lows) - 1)
+    bos_bearish_occurred := true
+    bos_level := close
+
+// ===== OPTIMAL TRADE ENTRY (OTE) - 62-79% Retracement =====
+var float ote_upper = 0.0
+var float ote_lower = 0.0
+
+if array.size(swing_highs) > 0 and array.size(swing_lows) > 0
+    last_high = array.get(swing_highs, array.size(swing_highs) - 1)
+    last_low = array.get(swing_lows, array.size(swing_lows) - 1)
+
+    if last_high > last_low  // Downmove, retrace up
+        range = last_high - last_low
+        ote_lower := last_low + (range * 0.62)
+        ote_upper := last_low + (range * 0.79)
+
+    if last_low < last_high  // Upmove, retrace down
+        range = last_high - last_low
+        ote_upper := last_high - (range * 0.62)
+        ote_lower := last_high - (range * 0.79)
+
+price_in_ote = close >= ote_lower and close <= ote_upper
+
+// ===== RSI DIVERGENCE =====
+// Bearish divergence: price makes new high but RSI lower
+// Bullish divergence: price makes new low but RSI higher
+
+rsi_divergence_bearish = high > high[1] and rsi < rsi[1]
+rsi_divergence_bullish = low < low[1] and rsi > rsi[1]
+
+// ===== VOLUME CHECK =====
+vol_avg = ta.sma(volume, 20)
+volume_weak = volume < vol_avg  // Weak pullback
+
+// ===== ENTRY CONDITIONS =====
+// LONG: BOS bullish + pullback to OTE/OB/FVG + RSI divergence + weak volume
+entry_long = is_market_hours and bos_bullish_occurred and (price_in_ote or price_in_ob or price_in_fvg) and rsi_divergence_bullish and volume_weak and strategy.position_size == 0
+
+// SHORT: BOS bearish + pullback to OTE/OB/FVG + RSI divergence + weak volume
+entry_short = is_market_hours and bos_bearish_occurred and (price_in_ote or price_in_ob or price_in_fvg) and rsi_divergence_bearish and volume_weak and strategy.position_size == 0
+
+// ===== POSITION TRACKING =====
+var float entry_price = 0.0
+var float stop_level = 0.0
+var float target_level = 0.0
+var int trades_today = 0
+
+if hour == 9 and minute == 30
+    trades_today := 0
+
+// ===== LONG ENTRY =====
+if entry_long and trades_today < MAX_TRADES_PER_SESSION
+    entry_price := open
+    stop_level := ob_low  // Stop at OB low
+    risk = entry_price - stop_level
+    target_level := array.size(swing_highs) > 0 ? array.get(swing_highs, array.size(swing_highs) - 1) : entry_price + (risk * 2)
+    trades_today += 1
+    strategy.entry("ICT_Long", strategy.long, qty=1)
+
+// ===== SHORT ENTRY =====
+if entry_short and trades_today < MAX_TRADES_PER_SESSION
+    entry_price := open
+    stop_level := ob_high  // Stop at OB high
+    risk = stop_level - entry_price
+    target_level := array.size(swing_lows) > 0 ? array.get(swing_lows, array.size(swing_lows) - 1) : entry_price - (risk * 2)
+    trades_today += 1
+    strategy.entry("ICT_Short", strategy.short, qty=1)
+
+// ===== EXIT =====
+if strategy.position_size > 0
+    strategy.exit("ICT_Exit", stop=stop_level, limit=target_level)
+
+// ===== END-OF-DAY EXIT =====
+if hour == 15 and minute >= 50 and strategy.position_size > 0
+    strategy.close_all(comment="EOD")
+
+// ===== PLOTTING (all at global scope) =====
+plot(ote_upper, "OTE Upper", color.new(color.blue, 50))
+plot(ote_lower, "OTE Lower", color.new(color.blue, 50))
+plot(ob_high, "OB High", color.new(color.orange, 50), 2)
+plot(ob_low, "OB Low", color.new(color.orange, 50), 2)
+
+// FVG zones - use na when inactive
+fvg_high_plot = fvg_active ? fvg_zone_high : na
+fvg_low_plot = fvg_active ? fvg_zone_low : na
+plot(fvg_high_plot, "FVG High", color.new(color.purple, 50))
+plot(fvg_low_plot, "FVG Low", color.new(color.purple, 50))
+
+plotchar(entry_long, "Long Entry", "▲", location.belowbar, color.green, size=size.small)
+plotchar(entry_short, "Short Entry", "▼", location.abovebar, color.red, size=size.small)
+
+// Stop and target - use na when no position
+stop_plot = strategy.position_size > 0 ? stop_level : na
+target_plot = strategy.position_size > 0 ? target_level : na
+plot(stop_plot, "Stop", color.red, 2)
+plot(target_plot, "Target", color.green, 2)

@@ -1,0 +1,122 @@
+//@version=5
+strategy("SLOT 1: ORB Multi-Timeframe (1min entry, 15min structure)", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=1, commission_type=strategy.commission.percent, commission_value=0.05, slippage=2)
+
+// ===== 15-MINUTE OPENING RANGE (captured on 1-minute chart) =====
+var orh_15m = 0.0
+var orl_15m = 0.0
+var or_locked = false
+var or_range = 0.0
+
+if hour == 9 and minute >= 30 and minute <= 44 and not or_locked
+    orh_15m := math.max(orh_15m, high)
+    orl_15m := math.min(orl_15m, low)
+
+if hour == 9 and minute == 45
+    or_locked := true
+    or_range := orh_15m - orl_15m
+
+if hour == 16
+    orh_15m := 0.0
+    orl_15m := 0.0
+    or_locked := false
+    or_range := 0.0
+
+// ===== DAILY CONTEXT =====
+pdh = request.security(syminfo.tickerid, "D", high[1])
+pdl = request.security(syminfo.tickerid, "D", low[1])
+daily_ema20 = request.security(syminfo.tickerid, "D", ta.ema(close, 20))
+daily_close_prev = request.security(syminfo.tickerid, "D", close[1])
+daily_open_curr = request.security(syminfo.tickerid, "D", open)
+
+// ===== 1-MINUTE INDICATORS =====
+vwap_1m = ta.vwap(close)
+rsi_1m = ta.rsi(close, 14)
+atr_1m = ta.atr(14)
+vol_avg_20 = ta.sma(volume, 20)
+
+// ===== ENTRY WINDOW: 9:45am-11:00am =====
+is_entry_window = hour >= 9 and minute >= 45 and (hour < 11 or (hour == 11 and minute == 0))
+
+// ===== INVALIDATION CONDITIONS =====
+gap_from_prev = math.abs(daily_open_curr - daily_close_prev) / daily_close_prev
+or_too_wide = or_range > (atr_1m * 1.5)
+price_extended = math.abs(close - vwap_1m) / vwap_1m > 0.03
+
+invalidation = gap_from_prev > 0.02 or or_too_wide or price_extended
+
+// ===== LONG ENTRY =====
+closes_above_orh = close > orh_15m and close[1] <= orh_15m
+price_above_vwap = close > vwap_1m
+price_above_daily_ema = close > daily_ema20
+volume_ok = volume >= vol_avg_20 * 1.5
+rsi_ok_long = rsi_1m >= 52 and rsi_1m <= 70
+
+entry_long = or_locked and is_entry_window and closes_above_orh and price_above_vwap and price_above_daily_ema and volume_ok and rsi_ok_long and not invalidation
+
+// ===== SHORT ENTRY =====
+closes_below_orl = close < orl_15m and close[1] >= orl_15m
+price_below_vwap = close < vwap_1m
+price_below_daily_ema = close < daily_ema20
+rsi_ok_short = rsi_1m >= 30 and rsi_1m <= 48
+
+entry_short = or_locked and is_entry_window and closes_below_orl and price_below_vwap and price_below_daily_ema and volume_ok and rsi_ok_short and not invalidation
+
+// ===== POSITION TRACKING =====
+var entry_price = 0.0
+var stop_level = 0.0
+var target_level = 0.0
+var pos_type = ""
+
+// ===== LONG ENTRY =====
+if entry_long and strategy.position_size == 0
+    entry_price := open[1]
+    stop_level := orl_15m
+    risk = entry_price - stop_level
+    target_level := orh_15m + (or_range * 2.0)
+    if pdh < target_level and pdh > entry_price
+        target_level := pdh
+    pos_type := "long"
+    strategy.entry("ORB_Long", strategy.long, qty=1)
+
+// ===== SHORT ENTRY =====
+if entry_short and strategy.position_size == 0
+    entry_price := open[1]
+    stop_level := orh_15m
+    risk = stop_level - entry_price
+    target_level := orl_15m - (or_range * 2.0)
+    if pdl > target_level and pdl < entry_price
+        target_level := pdl
+    pos_type := "short"
+    strategy.entry("ORB_Short", strategy.short, qty=1)
+
+// ===== INVALIDATION: Re-entry to Opening Range =====
+if strategy.position_size > 0
+    if pos_type == "long" and close < orh_15m
+        strategy.close_all("Re-entered OR")
+    if pos_type == "short" and close > orl_15m
+        strategy.close_all("Re-entered OR")
+
+// ===== EXIT =====
+if strategy.position_size > 0
+    if pos_type == "long"
+        strategy.exit("ORB_Exit_Long", from_entry="ORB_Long", stop=stop_level, limit=target_level)
+    else
+        strategy.exit("ORB_Exit_Short", from_entry="ORB_Short", stop=stop_level, limit=target_level)
+
+// ===== END-OF-DAY EXIT =====
+if hour == 15 and minute >= 50 and strategy.position_size > 0
+    strategy.close_all("EOD")
+
+// ===== PLOTTING =====
+plot(orh_15m, "ORH (15m)", color.orange, 2)
+plot(orl_15m, "ORL (15m)", color.orange, 2)
+plot(vwap_1m, "VWAP", color.blue, 1)
+plot(pdh, "PDH", color.new(color.green, 50), 1)
+plot(pdl, "PDL", color.new(color.red, 50), 1)
+
+plotchar(entry_long, "Long", "▲", location.belowbar, color.green, 0, size=size.small)
+plotchar(entry_short, "Short", "▼", location.abovebar, color.red, 0, size=size.small)
+
+if strategy.position_size > 0
+    plot(stop_level, "Stop", color.red, 2)
+    plot(target_level, "Target", color.green, 2)
