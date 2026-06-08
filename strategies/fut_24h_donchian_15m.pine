@@ -1,26 +1,30 @@
 //@version=6
-strategy("AXIOM FUT 24H Donchian 15m - Fixed", overlay=true, pyramiding=0, default_qty_type=strategy.percent_of_equity, default_qty_value=1, commission_type=strategy.commission.cash_per_contract, commission_value=2.0, slippage=2)
+strategy("AXIOM FUT 24H Donchian 15m - Data Fixed", overlay=true, pyramiding=0, default_qty_type=strategy.percent_of_equity, default_qty_value=1, commission_type=strategy.commission.cash_per_contract, commission_value=2.0, slippage=2, process_orders_on_close=true)
 
 // Use on a 15-minute futures chart. A 96-bar channel is a full 24 hours.
-// Default is 48 bars so Strategy Tester produces enough trade data on shorter chart histories.
-channel_len = input.int(48, "Donchian Lookback Bars", minval=10, maxval=200)
+// Default is 20 bars so Strategy Tester produces data even on short chart histories.
+channel_len = input.int(20, "Donchian Lookback Bars", minval=5, maxval=200)
 atr_len = input.int(14, "ATR Length", minval=1)
 ema_len = input.int(50, "EMA Filter Length", minval=1)
 use_trend_filter = input.bool(false, "Require EMA Trend Filter")
 atr_stop_mult = input.float(1.75, "ATR Stop Multiplier", minval=0.25, step=0.25)
 atr_target_mult = input.float(2.5, "ATR Target Multiplier", minval=0.5, step=0.25)
+allow_reversal = input.bool(true, "Allow Opposite Breakout Reversal")
 
 atr_val = ta.atr(atr_len)
 ema_val = ta.ema(close, ema_len)
 donchian_high = ta.highest(high, channel_len)[1]
 donchian_low = ta.lowest(low, channel_len)[1]
-ready = bar_index > channel_len and not na(donchian_high) and not na(donchian_low) and not na(atr_val)
+ready = bar_index >= math.max(channel_len, atr_len) and not na(donchian_high) and not na(donchian_low) and not na(atr_val)
 
 trend_long_ok = not use_trend_filter or close > ema_val
 trend_short_ok = not use_trend_filter or close < ema_val
 
-long_signal = ready and high > donchian_high and trend_long_ok and strategy.position_size == 0
-short_signal = ready and low < donchian_low and trend_short_ok and strategy.position_size == 0
+flat_or_reversal_long = strategy.position_size == 0 or (allow_reversal and strategy.position_size < 0)
+flat_or_reversal_short = strategy.position_size == 0 or (allow_reversal and strategy.position_size > 0)
+
+long_signal = ready and close > donchian_high and trend_long_ok and flat_or_reversal_long
+short_signal = ready and close < donchian_low and trend_short_ok and flat_or_reversal_short
 
 var float active_stop = na
 var float active_target = na
@@ -34,6 +38,8 @@ payload(side, stop_price, target_price) =>
     '{"symbol":"' + syminfo.ticker + '","side":"' + side + '","time":"' + str.tostring(time) + '","price":' + str.tostring(close) + ',"stop":' + str.tostring(stop_price) + ',"target":' + str.tostring(target_price) + ',"strategy":"fut_24h_donchian_15m","asset_class":"futures","timeframe":"15m","session":"24H","confidence":82}'
 
 if long_signal
+    if strategy.position_size < 0
+        strategy.close("Short")
     active_stop := long_stop
     active_target := long_target
     strategy.entry("Long", strategy.long)
@@ -41,6 +47,8 @@ if long_signal
     alert(payload("long", active_stop, active_target), alert.freq_once_per_bar_close)
 
 if short_signal
+    if strategy.position_size > 0
+        strategy.close("Long")
     active_stop := short_stop
     active_target := short_target
     strategy.entry("Short", strategy.short)
