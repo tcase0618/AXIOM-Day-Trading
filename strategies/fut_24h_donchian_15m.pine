@@ -1,0 +1,66 @@
+//@version=6
+strategy("AXIOM FUT 24H Donchian 15m - Fixed", overlay=true, pyramiding=0, default_qty_type=strategy.percent_of_equity, default_qty_value=1, commission_type=strategy.commission.cash_per_contract, commission_value=2.0, slippage=2)
+
+// Use on a 15-minute futures chart. A 96-bar channel is a full 24 hours.
+// Default is 48 bars so Strategy Tester produces enough trade data on shorter chart histories.
+channel_len = input.int(48, "Donchian Lookback Bars", minval=10, maxval=200)
+atr_len = input.int(14, "ATR Length", minval=1)
+ema_len = input.int(50, "EMA Filter Length", minval=1)
+use_trend_filter = input.bool(false, "Require EMA Trend Filter")
+atr_stop_mult = input.float(1.75, "ATR Stop Multiplier", minval=0.25, step=0.25)
+atr_target_mult = input.float(2.5, "ATR Target Multiplier", minval=0.5, step=0.25)
+
+atr_val = ta.atr(atr_len)
+ema_val = ta.ema(close, ema_len)
+donchian_high = ta.highest(high, channel_len)[1]
+donchian_low = ta.lowest(low, channel_len)[1]
+ready = bar_index > channel_len and not na(donchian_high) and not na(donchian_low) and not na(atr_val)
+
+trend_long_ok = not use_trend_filter or close > ema_val
+trend_short_ok = not use_trend_filter or close < ema_val
+
+long_signal = ready and high > donchian_high and trend_long_ok and strategy.position_size == 0
+short_signal = ready and low < donchian_low and trend_short_ok and strategy.position_size == 0
+
+var float active_stop = na
+var float active_target = na
+
+long_stop = close - atr_val * atr_stop_mult
+long_target = close + atr_val * atr_target_mult
+short_stop = close + atr_val * atr_stop_mult
+short_target = close - atr_val * atr_target_mult
+
+payload(side, stop_price, target_price) =>
+    '{"symbol":"' + syminfo.ticker + '","side":"' + side + '","time":"' + str.tostring(time) + '","price":' + str.tostring(close) + ',"stop":' + str.tostring(stop_price) + ',"target":' + str.tostring(target_price) + ',"strategy":"fut_24h_donchian_15m","asset_class":"futures","timeframe":"15m","session":"24H","confidence":82}'
+
+if long_signal
+    active_stop := long_stop
+    active_target := long_target
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Exit Long", from_entry="Long", stop=active_stop, limit=active_target)
+    alert(payload("long", active_stop, active_target), alert.freq_once_per_bar_close)
+
+if short_signal
+    active_stop := short_stop
+    active_target := short_target
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Exit Short", from_entry="Short", stop=active_stop, limit=active_target)
+    alert(payload("short", active_stop, active_target), alert.freq_once_per_bar_close)
+
+if strategy.position_size > 0
+    strategy.exit("Exit Long", from_entry="Long", stop=active_stop, limit=active_target)
+
+if strategy.position_size < 0
+    strategy.exit("Exit Short", from_entry="Short", stop=active_stop, limit=active_target)
+
+plot(donchian_high, "Donchian High", color.green, 2)
+plot(donchian_low, "Donchian Low", color.red, 2)
+plot(ema_val, "EMA Filter", color.blue)
+plot(strategy.position_size != 0 ? active_stop : na, "Active Stop", color.red)
+plot(strategy.position_size != 0 ? active_target : na, "Active Target", color.lime)
+
+plotshape(long_signal, title="Long Signal", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.small, text="L")
+plotshape(short_signal, title="Short Signal", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.small, text="S")
+
+alertcondition(long_signal, "fut_24h_donchian_15m Long", "AXIOM futures Donchian long")
+alertcondition(short_signal, "fut_24h_donchian_15m Short", "AXIOM futures Donchian short")
